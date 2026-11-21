@@ -96,6 +96,25 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal((await call('DELETE', '/mcp/servers/local')).status, 200);
     assert.equal((await call('GET', '/mcp/servers')).body.servers.some((s: { id: string }) => s.id === 'local'), false);
   }],
+  ['memória: ver, aprovar com edição, rejeitar, apagar e limpar a curta', async () => {
+    const p1 = hub.memory.propose('pc-mestre', 'Jean usa Windows 11', 'teste');
+    const p2 = hub.memory.propose('pc-mestre', 'chute ruim', 'teste');
+    hub.memory.appendShort('pc-mestre', 'user', 'oi');
+    let m = (await call('GET', '/agents/pc-mestre/memory')).body;
+    assert.equal(m.proposals.length, 2);
+    assert.equal(m.short.sessions[0].count, 1);
+    const ok = await call('POST', `/agents/pc-mestre/memory/proposals/${p1.id}/approve`, { content: 'Jean usa Windows 11 Pro' });
+    assert.equal(ok.body.fact.content, 'Jean usa Windows 11 Pro');
+    assert.equal((await call('DELETE', `/agents/pc-mestre/memory/proposals/${p2.id}`)).status, 200);
+    assert.equal((await call('PUT', `/agents/pc-mestre/memory/facts/${p1.id}`, { content: '' })).status, 400);
+    m = (await call('GET', '/agents/pc-mestre/memory')).body;
+    assert.equal(m.proposals.length, 0);
+    assert.equal(m.facts.length, 1);
+    assert.equal((await call('DELETE', `/agents/pc-mestre/memory/facts/${p1.id}`)).status, 200);
+    assert.equal((await call('DELETE', '/agents/pc-mestre/memory/short')).status, 200);
+    assert.equal((await call('GET', '/agents/pc-mestre/memory')).body.short.sessions.length, 0);
+    assert.equal((await call('GET', '/agents/nao-existe/memory')).status, 404);
+  }],
   ['iniciar o Mestre exige confirm=true', async () => {
     assert.equal((await call('POST', '/mestre/start', {})).status, 400);
   }],

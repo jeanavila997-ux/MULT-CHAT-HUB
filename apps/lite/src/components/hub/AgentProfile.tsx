@@ -1,5 +1,6 @@
 // Perfil do agente com abas (Visão geral, Skills, Ferramentas/MCP e as
 // próximas fases desativadas). Salvar grava agent.json no servidor.
+import MemoryTab from './MemoryTab';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { Copy, Download, Save, Trash2, X } from 'lucide-react';
 import { ChatContext } from '../../context/ChatContext';
@@ -18,7 +19,7 @@ const TABS: { id: Tab; label: string; soon?: string }[] = [
   { id: 'prompt', label: 'Prompt' },
   { id: 'skills', label: 'Skills' },
   { id: 'ferramentas', label: 'Ferramentas/MCP' },
-  { id: 'memoria', label: 'Memória', soon: 'fase 3' },
+  { id: 'memoria', label: 'Memória' },
   { id: 'acessos', label: 'Acessos', soon: 'fase 4' },
   { id: 'seguranca', label: 'Segurança 🔒', soon: 'fase 5' },
   { id: 'rotinas', label: 'Rotinas', soon: 'fase 6' },
@@ -179,6 +180,7 @@ export default function AgentProfile({ agentId, status, onClose }: Props) {
         ) : null}
 
         {tab === 'prompt' ? <PromptEditor agent={saved} /> : null}
+        {tab === 'memoria' ? <MemoryTab agentId={saved.id} /> : null}
 
         {tab === 'skills' ? (
           <section aria-label="Skills do agente" className="space-y-2">
@@ -234,7 +236,7 @@ export default function AgentProfile({ agentId, status, onClose }: Props) {
 
       <footer className="p-3 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
         <div className="flex gap-2">
-          {tab === 'prompt' ? null : <Button size="sm" icon={<Save className="w-4 h-4" />} onClick={save} disabled={!dirty || busy} isLoading={busy} fullWidth>Salvar</Button>}
+          {tab === 'prompt' || tab === 'memoria' ? null : <Button size="sm" icon={<Save className="w-4 h-4" />} onClick={save} disabled={!dirty || busy} isLoading={busy} fullWidth>Salvar</Button>}
           <Button size="sm" variant="secondary" icon={<Copy className="w-4 h-4" />} onClick={duplicate}>Duplicar</Button>
           <Button size="sm" variant="secondary" icon={<Download className="w-4 h-4" />} onClick={exportJson}>Exportar</Button>
         </div>

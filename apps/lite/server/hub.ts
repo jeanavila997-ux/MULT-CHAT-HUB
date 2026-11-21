@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AgentRegistry } from './agents/registry.js';
+import { AgentMemory } from './agents/memory.js';
 import { McpManager } from './mcp/manager.js';
 import type { McpClientLike } from './agent/mcpClient.js';
 import { assertSafeDataRoot, dataRoot } from './storage/paths.js';
@@ -12,6 +13,7 @@ import { providerMeta } from './providers/catalog.js';
 export interface Hub {
   root: string;
   registry: AgentRegistry;
+  memory: AgentMemory;
   secrets: SecretStore;
   secretsAvailable: boolean;
   secretsError?: string;
@@ -38,6 +40,7 @@ export async function createHub(opts: { root?: string; env?: NodeJS.ProcessEnv; 
   }
   const registry = new AgentRegistry(root);
   registry.seedDefaults();
+  for (const a of registry.list()) { try { new AgentMemory(registry).purgeShort(a.id); } catch { /* agente sem pasta */ } }
   registry.purgeTrash(Number(env.MCH_TRASH_DAYS) > 0 ? Number(env.MCH_TRASH_DAYS) : 30);
 
   let backend = opts.secretBackend;
@@ -53,6 +56,7 @@ export async function createHub(opts: { root?: string; env?: NodeJS.ProcessEnv; 
   return {
     root,
     registry,
+    memory: new AgentMemory(registry),
     secrets: new SecretStore(backend, path.join(root, 'config', 'secrets-index.json')),
     secretsAvailable: !secretsError,
     ...(secretsError ? { secretsError } : {}),

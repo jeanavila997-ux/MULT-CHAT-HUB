@@ -9,6 +9,7 @@ import { AgentTool } from './toolLoop.js';
 import { listSkills, loadSkillBody, resolveSkillDirs } from './skills.js';
 import type { McpManager } from '../mcp/manager.js';
 import type { AgentScope } from './agentRun.js';
+import type { AgentMemory } from '../agents/memory.js';
 import { runAppTool } from '../controllers/toolController.js';
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -340,7 +341,24 @@ function builtinCandidates(): Candidate[] {
   ];
 }
 
-export async function buildAgentTools(scope: AgentScope | null = null, mcp: McpManager | null = null): Promise<{ tools: AgentTool[]; status: ToolStatus[] }> {
+/** Ferramenta da memória longa do agente: só cria PROPOSTA; o Jean aprova na aba Memória. */
+export function proposeMemoryTool(agentId: string, memory: AgentMemory): AgentTool {
+  return {
+    name: 'propor_memoria',
+    description: 'Propõe um fato para a memória longa deste agente (ex.: preferência estável do Jean). Não salva sozinho: o Jean aprova, edita ou rejeita na aba Memória. Nunca proponha senhas, chaves ou dados sensíveis.',
+    parameters: obj({ fato: str('Fato curto e estável, em pt-BR'), motivo: str('Por que vale lembrar (opcional)') }, ['fato']),
+    source: 'memoria',
+    requiresConfirmation: false,
+    run: async (args) => {
+      const fato = requireString(args, 'fato', 2000);
+      if (/(sk-|ghp_|api[_-]?key|senha|password|token)\S*/i.test(fato)) throw new Error('Não guardo segredos na memória.');
+      const p = memory.propose(agentId, fato, typeof args.motivo === 'string' ? args.motivo.slice(0, 200) : 'conversa');
+      return `Proposta ${p.id} criada. Ela só vale depois que o Jean aprovar na aba Memória.`;
+    },
+  };
+}
+
+export async function buildAgentTools(scope: AgentScope | null = null, mcp: McpManager | null = null, memory: AgentMemory | null = null): Promise<{ tools: AgentTool[]; status: ToolStatus[] }> {
   const status: ToolStatus[] = [];
   const tools: AgentTool[] = [];
   // Agente com ferramentas desligadas: conversa pura, sem nenhuma ferramenta.
@@ -354,6 +372,13 @@ export async function buildAgentTools(scope: AgentScope | null = null, mcp: McpM
       const { disabledReason: _ignored, ...tool } = c;
       tools.push(tool);
     }
+  }
+
+  if (scope && memory && scope.id !== 'chat') {
+    const t = proposeMemoryTool(scope.id, memory);
+    names.add(t.name);
+    status.push({ name: t.name, source: t.source, enabled: true, requiresConfirmation: false });
+    tools.push(t);
   }
 
   // Ferramentas MCP liberadas para este agente (classe fixa + confirmação fora da leitura).

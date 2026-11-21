@@ -31,6 +31,12 @@ export class AgentRegistry {
   }
   private fileOf(id: string) { return path.join(this.dirOf(id), 'agent.json'); }
 
+  /** Pasta de um agente existente (para memória, rotinas etc.). */
+  agentDir(id: string): string {
+    if (!this.get(id)) throw new Error(`Agente não encontrado: ${id}`);
+    return this.dirOf(id);
+  }
+
   list(): AgentV2[] {
     if (!fs.existsSync(this.agentsDir())) return [];
     return fs.readdirSync(this.agentsDir(), { withFileTypes: true })

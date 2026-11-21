@@ -60,6 +60,22 @@ export function buildHubRouter(getHub: GetHub): Router {
   }));
   r.post('/agents/:id/prompt/restore-default', wrap((hub, req, res) => res.json({ agent: hub.registry.restoreDefaultPrompt(String(req.params.id)) })));
   r.post('/agents/:id/history/:file/restore', wrap((hub, req, res) => res.json({ agent: hub.registry.restoreVersion(String(req.params.id), String(req.params.file)) })));
+  // Memória (curta = sessões; longa = fatos aprovados + propostas do agente).
+  r.get('/agents/:id/memory', wrap((hub, req, res) => {
+    const id = String(req.params.id);
+    return res.json({ short: hub.memory.shortSummary(id), facts: hub.memory.listFacts(id), proposals: hub.memory.listProposals(id) });
+  }));
+  r.post('/agents/:id/memory/proposals/:pid/approve', wrap((hub, req, res) => res.json({ fact: hub.memory.approve(String(req.params.id), String(req.params.pid), typeof req.body?.content === 'string' ? req.body.content : undefined) })));
+  r.delete('/agents/:id/memory/proposals/:pid', wrap((hub, req, res) => { hub.memory.reject(String(req.params.id), String(req.params.pid)); return res.json({ ok: true }); }));
+  r.post('/agents/:id/memory/facts', wrap((hub, req, res) => {
+    const id = String(req.params.id);
+    const p = hub.memory.propose(id, String(req.body?.content ?? ''), 'escrito pelo Jean');
+    return res.status(201).json({ fact: hub.memory.approve(id, p.id) });
+  }));
+  r.put('/agents/:id/memory/facts/:fid', wrap((hub, req, res) => res.json({ fact: hub.memory.updateFact(String(req.params.id), String(req.params.fid), String(req.body?.content ?? '')) })));
+  r.delete('/agents/:id/memory/facts/:fid', wrap((hub, req, res) => { hub.memory.deleteFact(String(req.params.id), String(req.params.fid)); return res.json({ ok: true }); }));
+  r.delete('/agents/:id/memory/short', wrap((hub, req, res) => { hub.memory.clearShort(String(req.params.id)); return res.json({ ok: true }); }));
+
   r.get('/agents-trash', wrap((hub, _req, res) => res.json({ trash: hub.registry.listTrash() })));
   r.post('/agents-trash/:trashId/restore', wrap((hub, req, res) => res.json({ agent: hub.registry.restore(String(req.params.trashId)) })));
 

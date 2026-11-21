@@ -50,6 +50,9 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   return data;
 }
 
+export interface MemoryItem { id: string; content: string; source: string; createdAt: string; updatedAt?: string }
+export interface AgentMemoryView { short: { sessions: { id: string; count: number }[]; limit: number; days: number }; facts: MemoryItem[]; proposals: MemoryItem[] }
+
 export const hubApi = {
   listAgents: () => req<{ root: string; agents: HubAgent[] }>('GET', '/api/agents'),
   createAgent: (input: Partial<HubAgent>) => req<{ agent: HubAgent }>('POST', '/api/agents', input),
@@ -62,6 +65,13 @@ export const hubApi = {
   promptInfo: (id: string) => req<PromptInfo>('GET', `/api/agents/${encodeURIComponent(id)}/prompt`),
   restoreDefaultPrompt: (id: string) => req<{ agent: HubAgent }>('POST', `/api/agents/${encodeURIComponent(id)}/prompt/restore-default`),
   restoreVersion: (id: string, file: string) => req<{ agent: HubAgent }>('POST', `/api/agents/${encodeURIComponent(id)}/history/${encodeURIComponent(file)}/restore`),
+  memory: (id: string) => req<AgentMemoryView>('GET', `/api/agents/${encodeURIComponent(id)}/memory`),
+  approveMemory: (id: string, pid: string, content?: string) => req<{ fact: MemoryItem }>('POST', `/api/agents/${encodeURIComponent(id)}/memory/proposals/${encodeURIComponent(pid)}/approve`, { content }),
+  rejectMemory: (id: string, pid: string) => req<{ ok: boolean }>('DELETE', `/api/agents/${encodeURIComponent(id)}/memory/proposals/${encodeURIComponent(pid)}`),
+  addFact: (id: string, content: string) => req<{ fact: MemoryItem }>('POST', `/api/agents/${encodeURIComponent(id)}/memory/facts`, { content }),
+  updateFact: (id: string, fid: string, content: string) => req<{ fact: MemoryItem }>('PUT', `/api/agents/${encodeURIComponent(id)}/memory/facts/${encodeURIComponent(fid)}`, { content }),
+  deleteFact: (id: string, fid: string) => req<{ ok: boolean }>('DELETE', `/api/agents/${encodeURIComponent(id)}/memory/facts/${encodeURIComponent(fid)}`),
+  clearShortMemory: (id: string) => req<{ ok: boolean }>('DELETE', `/api/agents/${encodeURIComponent(id)}/memory/short`),
   listTrash: () => req<{ trash: TrashEntry[] }>('GET', '/api/agents-trash'),
   restoreTrash: (trashId: string) => req<{ agent: HubAgent }>('POST', `/api/agents-trash/${encodeURIComponent(trashId)}/restore`),
 

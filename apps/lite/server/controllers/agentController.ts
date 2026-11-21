@@ -3,7 +3,7 @@ import { ChatFn, LoopMessage, LoopResult, LoopState, PendingStore, runToolLoop, 
 import { buildAgentTools, skillDirs } from '../agent/agentTools.js';
 import { listSkills, SkillMeta } from '../agent/skills.js';
 import { DEFAULT_LOCAL_MODEL } from '../providers/catalog.js';
-import { getHub } from '../hub.js';
+import { getHub, type Hub } from '../hub.js';
 import { resolveAgentRun, LEGACY_SCOPE, AgentScope } from '../agent/agentRun.js';
 import { paidGuardError } from '../providers/paidGuard.js';
 
@@ -90,9 +90,20 @@ export function ollamaChat(model: string, timeoutMs = 120_000): ChatFn {
 
 const pending = new PendingStore<{ model: string; scope: AgentScope; agentId: string | null }>();
 
+function safeMemoryBlock(hub: Hub, agentId: string): string {
+  try { return hub.memory.promptBlock(agentId); } catch { return ''; }
+}
+function rememberShort(hub: Hub | null, agentId: string | null, role: 'user' | 'assistant', content: string) {
+  if (!hub || !agentId) return;
+  try { hub.memory.appendShort(agentId, role, content); } catch (err) { slog('WARN', 'memory_short_error', { agentId, error: String(err).slice(0, 120) }); }
+}
+// O hub é um singleton; guardado aqui para a resposta registrar a memória curta.
+let lastHub: Hub | null = null;
+
 function respond(res: Response, result: LoopResult, model: string, scope: AgentScope = LEGACY_SCOPE, agentId: string | null = null) {
   if (result.status === 'done') {
     slog('INFO', 'agent_done', { model, iterations: result.iterations, tools: result.trace.map((t) => t.tool) });
+    rememberShort(lastHub, agentId, 'assistant', result.text || '');
     return res.json({ status: 'done', text: result.text || 'Sem resposta do modelo.', trace: result.trace, model, agentId });
   }
   const pendingId = pending.put(result.state, { model, scope, agentId });
@@ -101,7 +112,7 @@ function respond(res: Response, result: LoopResult, model: string, scope: AgentS
 }
 
 async function hubOrNull() {
-  try { return await getHub(); } catch (err) {
+  try { lastHub = await getHub(); return lastHub; } catch (err) {
     slog('WARN', 'hub_unavailable', { error: err instanceof Error ? err.message.slice(0, 200) : String(err) });
     return null;
   }
@@ -125,8 +136,10 @@ export const handleAgentChat = async (req: Request, res: Response) => {
   const paidError = paidGuardError('ollama', model, req.body?.confirmPaid);
   if (paidError) return res.status(402).json({ error: paidError, needsPaidConfirmation: true });
   try {
-    const { tools } = await buildAgentTools(run.scope, hub?.mcp ?? null);
-    const system = [await modelSystem(model), run.systemPrompt, buildAgentRules(run.skills)].filter(Boolean).join('\n\n');
+    const { tools } = await buildAgentTools(run.scope, hub?.mcp ?? null, hub?.memory ?? null);
+    const memoryBlock = agent && hub ? safeMemoryBlock(hub, agent.id) : '';
+    const system = [await modelSystem(model), run.systemPrompt, memoryBlock, buildAgentRules(run.skills)].filter(Boolean).join('\n\n');
+    if (agent && hub) rememberShort(hub, agent.id, 'user', input);
     const historyMessages: LoopMessage[] = (Array.isArray(history) ? history : [])
       .slice(-10)
       .map((m: { role?: string; content?: unknown }) => ({
@@ -159,7 +172,7 @@ export const handleAgentConfirm = async (req: Request, res: Response) => {
   }
   try {
     const hub = await hubOrNull();
-    const { tools } = await buildAgentTools(entry.ctx.scope, hub?.mcp ?? null);
+    const { tools } = await buildAgentTools(entry.ctx.scope, hub?.mcp ?? null, hub?.memory ?? null);
     const result = await runToolLoop(
       { chat: ollamaChat(entry.ctx.model), tools, maxIterations: maxIterations() },
       entry.state,
