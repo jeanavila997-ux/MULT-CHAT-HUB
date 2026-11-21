@@ -1,8 +1,9 @@
-import { useContext, useState } from 'react';
-import { Plus, Sparkles, Cpu, Key, Eye, EyeOff, UserPlus, X } from 'lucide-react';
+import { useContext, useEffect, useState } from 'react';
+import { Plus, Sparkles, Cpu, Key, Eye, EyeOff, UserPlus, X, Wrench } from 'lucide-react';
 import { ChatContext } from '../context/ChatContext';
 import { Button } from './ui/Button';
 import { Agent, ProviderName } from '../types';
+import { getBackendAuthHeaders } from '../lib/backendAuth';
 
 const TECH_OPTIONS = [
   'OpenAI · GPT',
@@ -20,6 +21,8 @@ const TECH_OPTIONS = [
   'OpenCode',
   '9Router',
   'DeepSeek',
+  'NVIDIA NIM',
+  'Cloudflare Workers AI',
 ] as const;
 
 type ProviderMeta = {
@@ -194,6 +197,26 @@ const PROVIDERS: ProviderMeta[] = [
     dot: 'bg-teal-500',
     needsKey: true,
   },
+  {
+    id: 'nvidia',
+    label: 'NVIDIA',
+    short: 'NIM',
+    description: 'NVIDIA NIM (integrate.api.nvidia.com) — Llama, Nemotron e outros via API compatível com OpenAI.',
+    accent: 'bg-lime-50 dark:bg-lime-950/40 border-lime-300 dark:border-lime-800 text-lime-900 dark:text-lime-200',
+    ring: 'ring-lime-500/40',
+    dot: 'bg-lime-500',
+    needsKey: true,
+  },
+  {
+    id: 'cloudflare',
+    label: 'Cloudflare',
+    short: 'Workers AI',
+    description: 'Cloudflare Workers AI (@cf/…) via endpoint compatível com OpenAI. Requer CLOUDFLARE_ACCOUNT_ID no servidor.',
+    accent: 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200',
+    ring: 'ring-amber-500/40',
+    dot: 'bg-amber-500',
+    needsKey: true,
+  },
 ];
 
 // Mapeia o `provider` textual de cada agente para um rótulo + cor de marca
@@ -232,6 +255,12 @@ function techBadge(provider: string): { label: string; cls: string } {
   if (p.includes('opencode') || p.includes('open code')) {
     return { label: 'OpenCode', cls: 'bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-200 dark:border-indigo-900' };
   }
+  if (p.includes('nvidia')) {
+    return { label: 'NVIDIA NIM', cls: 'bg-lime-100 text-lime-800 border-lime-200 dark:bg-lime-950/50 dark:text-lime-200 dark:border-lime-900' };
+  }
+  if (p.includes('cloudflare') || p.includes('workers ai')) {
+    return { label: 'Cloudflare Workers AI', cls: 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:border-amber-900' };
+  }
   if (p.includes('power') || p.includes('terminal')) {
     return { label: 'PowerShell CLI', cls: 'bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-950/50 dark:text-sky-200 dark:border-sky-900' };
   }
@@ -255,6 +284,43 @@ export default function AgentConfig() {
     permissions: 'tools',
     thinkingLevel: 'HIGH',
   });
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaDefault, setOllamaDefault] = useState('');
+  const isOllama = ctx?.activeProvider === 'ollama';
+
+  // Lista os modelos instalados no Ollama local (GET /api/models/ollama → /api/tags)
+  useEffect(() => {
+    if (!isOllama) return;
+    let cancelled = false;
+    fetch('/api/models/ollama', { headers: getBackendAuthHeaders() })
+      .then((r) => r.json() as Promise<{ default?: string; models?: string[] }>)
+      .then((data) => {
+        if (cancelled) return;
+        setOllamaModels(Array.isArray(data.models) ? data.models : []);
+        setOllamaDefault(typeof data.default === 'string' ? data.default : '');
+      })
+      .catch(() => { /* Ollama offline: mantém o campo de texto livre */ });
+    return () => { cancelled = true; };
+  }, [isOllama]);
+
+  // Skills e ferramentas do agente local (GET /api/agent/skills e /api/agent/tools)
+  const [agentSkills, setAgentSkills] = useState<{ name: string; description: string }[]>([]);
+  const [agentTools, setAgentTools] = useState<{ name: string; source: string; enabled: boolean; requiresConfirmation: boolean; reason?: string }[]>([]);
+  const [agentInfoTick, setAgentInfoTick] = useState(0);
+  const [connecting, setConnecting] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const headers = getBackendAuthHeaders();
+    Promise.all([
+      fetch('/api/agent/skills', { headers }).then((r) => r.json()).catch(() => null),
+      fetch('/api/agent/tools', { headers }).then((r) => r.json()).catch(() => null),
+    ]).then(([skillsData, toolsData]) => {
+      if (cancelled) return;
+      setAgentSkills(Array.isArray(skillsData?.skills) ? skillsData.skills : []);
+      setAgentTools(Array.isArray(toolsData?.tools) ? toolsData.tools : []);
+    });
+    return () => { cancelled = true; };
+  }, [agentInfoTick]);
 
   if (!ctx) return null;
 
@@ -267,6 +333,7 @@ export default function AgentConfig() {
     pairingCode,
     setPairingCode,
     connectExternalAgent,
+    disconnectExternalAgent,
     activeProvider,
     setActiveProvider,
     providerConfig,
@@ -383,9 +450,86 @@ export default function AgentConfig() {
           </div>
         )}
 
-        <div className="mt-2 text-[10px] text-stone-500 dark:text-stone-500 px-1">
-          Modelo: <span className="font-mono text-stone-700 dark:text-stone-300">{currentCfg.model}</span>
+        <div className="mt-2 px-1 space-y-1">
+          <label htmlFor="provider-model" className="block text-[10px] text-stone-500 dark:text-stone-500">
+            Modelo
+          </label>
+          {activeProvider === 'ollama' && ollamaModels.length > 0 ? (
+            <select
+              id="provider-model"
+              value={currentCfg.model}
+              onChange={(e) => updateProviderConfig(activeProvider, { model: e.target.value })}
+              className="w-full h-8 px-2 border border-stone-300 dark:border-zinc-600 rounded-md text-xs font-mono bg-stone-50 dark:bg-zinc-900 text-stone-900 dark:text-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+            >
+              <option value="">Padrão do servidor{ollamaDefault ? ` (${ollamaDefault})` : ''}</option>
+              {currentCfg.model && !ollamaModels.includes(currentCfg.model) && (
+                <option value={currentCfg.model}>{currentCfg.model} (não instalado)</option>
+              )}
+              {ollamaModels.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id="provider-model"
+              type="text"
+              value={currentCfg.model}
+              onChange={(e) => updateProviderConfig(activeProvider, { model: e.target.value })}
+              placeholder="Padrão do servidor"
+              className="w-full h-8 px-2 border border-stone-300 dark:border-zinc-600 rounded-md text-xs font-mono bg-stone-50 dark:bg-zinc-900 text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          )}
         </div>
+      </section>
+
+      <div className="border-t border-stone-200 dark:border-zinc-800" />
+
+      {/* ── Skills e ferramentas do agente local ───────────────────────── */}
+      <section aria-labelledby="agent-skills-heading">
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center gap-2">
+            <Wrench className="w-4 h-4 text-stone-500" />
+            <h2 id="agent-skills-heading" className="font-serif text-base font-semibold text-stone-900 dark:text-stone-100 tracking-tight">
+              Skills e ferramentas do agente
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAgentInfoTick((n) => n + 1)}
+            className="text-xs font-medium px-2 py-1 rounded-md border border-stone-300 dark:border-zinc-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+          >
+            Atualizar
+          </button>
+        </div>
+        <p className="text-xs text-stone-600 dark:text-stone-400 mb-3 leading-relaxed">
+          Usadas pelo agente local (Ollama, "Ferramentas: ON"). As marcadas com "confirma" só rodam depois do seu clique.
+        </p>
+        <div className="space-y-1 mb-3">
+          {agentSkills.length === 0 ? (
+            <p className="text-xs italic text-stone-500">Nenhuma skill encontrada.</p>
+          ) : (
+            agentSkills.map((s) => (
+              <div key={s.name} className="text-xs leading-relaxed">
+                <span className="font-mono font-semibold text-stone-800 dark:text-stone-200">{s.name}</span>
+                <span className="text-stone-500 dark:text-stone-400"> — {s.description}</span>
+              </div>
+            ))
+          )}
+        </div>
+        <ul className="space-y-1">
+          {agentTools.map((t) => (
+            <li key={t.name} className="flex items-start gap-2 text-xs" title={t.reason}>
+              <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${t.enabled ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-600'}`} aria-hidden />
+              <span className={`font-mono ${t.enabled ? 'text-stone-800 dark:text-stone-200' : 'text-stone-400 dark:text-zinc-500'}`}>{t.name}</span>
+              {t.requiresConfirmation && (
+                <span className="px-1 rounded border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-[10px]">confirma</span>
+              )}
+              {!t.enabled && t.reason && <span className="text-stone-400 dark:text-zinc-500 truncate">{t.reason}</span>}
+            </li>
+          ))}
+        </ul>
       </section>
 
       <div className="border-t border-stone-200 dark:border-zinc-800" />
@@ -571,7 +715,7 @@ export default function AgentConfig() {
           Gateway Externo
         </h2>
         <p className="text-xs text-stone-600 dark:text-stone-400 mb-3 leading-relaxed">
-          Conecte um motor NullClaw ou serviço próprio rodando em outra máquina.
+          Conecte um gateway NullClaw rodando neste PC (outros hosts: GATEWAY_ALLOWED_HOSTS no .env.local).
         </p>
         <div className="space-y-3 bg-white dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700 p-3 rounded-xl">
           <div>
@@ -604,13 +748,29 @@ export default function AgentConfig() {
           <Button
             variant="primary"
             icon={<Plus className="w-4 h-4" />}
-            onClick={connectExternalAgent}
-            disabled={!externalAgentURL.trim() || !pairingCode.trim()}
+            onClick={async () => { setConnecting(true); try { await connectExternalAgent(); } finally { setConnecting(false); } }}
+            isLoading={connecting}
+            disabled={!externalAgentURL.trim() || !pairingCode.trim() || connecting}
             fullWidth
             className="bg-orange-600 hover:bg-orange-700 active:bg-orange-800 focus-visible:ring-orange-500"
           >
             Conectar
           </Button>
+          <p className="text-[10px] text-stone-500 dark:text-stone-400 leading-relaxed">
+            O código de pareamento (uso único) é trocado por um token no /pair do gateway. O token fica só no servidor do lite.
+          </p>
+          {agents.some((a) => a.gatewayId) && (
+            <ul className="space-y-1 pt-1 border-t border-stone-200 dark:border-zinc-700">
+              {agents.filter((a) => a.gatewayId).map((a) => (
+                <li key={a.gatewayId} className="flex items-center justify-between gap-2 text-xs text-stone-700 dark:text-stone-300">
+                  <span className="truncate">{a.description.replace('Agente rodando em ', '')}</span>
+                  <Button variant="ghost" size="sm" onClick={() => disconnectExternalAgent(a.gatewayId!)}>
+                    Desconectar
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </section>
     </div>

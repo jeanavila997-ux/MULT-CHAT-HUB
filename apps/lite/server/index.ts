@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import apiRoutes from './routes/api.js';
+import { startRoutineScheduler } from './controllers/routinesController.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -19,7 +20,7 @@ if (!activationSecret) {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
+const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 
 // ── Structured request logger ─────────────────────────────────────────────────
 app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -49,6 +50,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // Electron via file:// envia Origin: null — tratado explicitamente abaixo.
 const ALLOWED_ORIGINS = [
   'http://localhost:3001', // Vite dev server
+  'http://127.0.0.1:3001', // Vite dev server (IPv4)
   'http://localhost:5173', // Vite dev fallback
   'http://localhost:4173', // Vite preview
   `http://localhost:${PORT}`,
@@ -97,7 +99,8 @@ app.get('/health', async (_req: Request, res: Response) => {
   });
 });
 
-app.listen(PORT, () => {
+// Só loopback: o backend guarda chaves e executa ferramentas locais (HOST muda se precisar).
+app.listen(Number(PORT), process.env.HOST || '127.0.0.1', () => {
   console.log(JSON.stringify({
     ts: new Date().toISOString(),
     level: 'INFO',
@@ -105,4 +108,6 @@ app.listen(PORT, () => {
     port: PORT,
     ollamaHost: OLLAMA_HOST,
   }));
+  // Agendador das rotinas (apps/lite/data/routines.json), fuso America/Rio_Branco.
+  startRoutineScheduler();
 });

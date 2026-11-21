@@ -19,7 +19,9 @@ export type ProviderName =
   | 'hermes'
   | 'opencode'
   | 'router9'
-  | 'deepseek';
+  | 'deepseek'
+  | 'nvidia'
+  | 'cloudflare';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -60,6 +62,12 @@ export const PROVIDER_ALIASES: Record<string, ProviderName> = {
   '9-router': 'router9',
   '9 router': 'router9',
   deepseek: 'deepseek',
+  nvidia: 'nvidia',
+  nim: 'nvidia',
+  'nvidia nim': 'nvidia',
+  cloudflare: 'cloudflare',
+  'workers ai': 'cloudflare',
+  'cloudflare workers ai': 'cloudflare',
   ollama: 'ollama',
   openai: 'openai',
   anthropic: 'anthropic',
@@ -81,6 +89,8 @@ export function normalizeProviderName(raw: unknown): ProviderName | null {
   if (compact.includes('opencode') || compact.includes('open code')) return 'opencode';
   if (compact.includes('9router') || compact.includes('9 router')) return 'router9';
   if (compact.includes('deepseek')) return 'deepseek';
+  if (compact.includes('nvidia')) return 'nvidia';
+  if (compact.includes('cloudflare') || compact.includes('workers ai')) return 'cloudflare';
   if (compact.includes('hermes')) return 'hermes';
   if (compact.includes('ollama')) return 'ollama';
   if (compact.includes('llama')) return 'llamacpp';
@@ -100,14 +110,16 @@ export const DEFAULT_MODELS: Record<ProviderName, string> = {
   llamacpp:   'local-model',
   cli:        'gpt-4o-mini',
   powershell: 'gpt-4o-mini',
-  grok:       'grok-2-latest',
-  grok_bot:   'grok-2-latest',
+  grok:       'grok-4.7',
+  grok_bot:   'grok-4.7',
   codex:      'gpt-4o-mini',
   claude_code: 'claude-3-5-sonnet-latest',
   hermes:     'hermes-3-llama-3.1-70b',
   opencode:   'gpt-4o-mini',
-  router9:    'openai/gpt-4o-mini',
+  router9:    'cx/gpt-5.6-sol',
   deepseek:   'deepseek-chat',
+  nvidia:     'nvidia/nemotron-nano-3-30b-a3b',
+  cloudflare: '@cf/meta/llama-4-scout-17b-16e-instruct',
 };
 
 export const PROVIDER_LABELS: Record<ProviderName, string> = {
@@ -127,6 +139,8 @@ export const PROVIDER_LABELS: Record<ProviderName, string> = {
   opencode:    'OpenCode',
   router9:     '9Router',
   deepseek:    'DeepSeek',
+  nvidia:      'NVIDIA NIM',
+  cloudflare:  'Cloudflare Workers AI',
 };
 
 export const NEEDS_API_KEY: Record<ProviderName, boolean> = {
@@ -146,6 +160,8 @@ export const NEEDS_API_KEY: Record<ProviderName, boolean> = {
   opencode:    true,
   router9:     true,
   deepseek:    true,
+  nvidia:      true,
+  cloudflare:  true,
 };
 
 export const PROVIDER_ORDER: ProviderName[] = [
@@ -165,6 +181,8 @@ export const PROVIDER_ORDER: ProviderName[] = [
   'opencode',
   'router9',
   'deepseek',
+  'nvidia',
+  'cloudflare',
 ];
 
 // Anthropic and Gemini require messages to strictly alternate user/assistant
@@ -192,7 +210,7 @@ function normalizeConversation(messages: { role: 'user' | 'assistant'; content: 
 class OllamaAdapter implements ProviderAdapter {
   readonly name: ProviderName = 'ollama';
 
-  async chat({ messages, model, maxTokens, baseUrl = 'http://localhost:11434', signal }: AdapterChatParams): Promise<string> {
+  async chat({ messages, model, maxTokens, baseUrl = 'http://127.0.0.1:11434', signal }: AdapterChatParams): Promise<string> {
     const res = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -389,6 +407,8 @@ export function createAdapter(provider: ProviderName): ProviderAdapter {
     case 'opencode':
     case 'router9':
     case 'deepseek':
+    case 'nvidia':
+    case 'cloudflare':
       return new OpenAIAdapter();
   }
 }

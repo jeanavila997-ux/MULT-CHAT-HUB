@@ -1,4 +1,4 @@
-import { Terminal, Code, Settings, Paperclip } from 'lucide-react';
+import { Terminal, Code, Settings, Paperclip, Clock } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 
@@ -83,17 +83,33 @@ export default function ManualModal({ isOpen, onClose }: ManualModalProps) {
           <h3 className="text-lg font-bold text-zinc-900 flex items-center gap-2 mb-4">
             <Settings className="w-5 h-5 text-indigo-600" aria-hidden="true" /> 4. Gateway Externo (NullClaw)
           </h3>
-          <p className="mb-4 text-sm">
-            Webhook autenticado por <code className="bg-zinc-100 px-1 rounded">Bearer &lt;TOKEN&gt;</code>{' '}
-            (código de pareamento). Payload:
-          </p>
+          <ol className="mb-4 text-sm list-decimal ml-5 space-y-1">
+            <li>Inicie o gateway NullClaw neste PC. Ele mostra um <b>código de pareamento</b> de 6 dígitos que vale uma vez só.</li>
+            <li>No painel lateral, em <b>Gateway Externo</b>, informe a URL (ex.: <code className="bg-zinc-100 px-1 rounded">http://127.0.0.1:3010</code>) e o código e clique em <b>Conectar</b>.</li>
+            <li>O servidor do lite chama <code className="bg-zinc-100 px-1 rounded">POST /pair</code> com <code className="bg-zinc-100 px-1 rounded">X-Pairing-Code</code>, recebe um token e guarda só no servidor. Código errado ou já usado mostra o erro na hora.</li>
+            <li>Selecione o agente <b>NullClaw &lt;host&gt;</b> na lista e converse. As mensagens vão para <code className="bg-zinc-100 px-1 rounded">POST /webhook</code> com <code className="bg-zinc-100 px-1 rounded">Bearer &lt;token&gt;</code>.</li>
+            <li><b>Desconectar</b> apaga o token. Gateway em outra máquina: adicione o host em <code className="bg-zinc-100 px-1 rounded">GATEWAY_ALLOWED_HOSTS</code> no .env.local.</li>
+          </ol>
           <pre className="text-xs bg-zinc-900 text-zinc-300 p-3 rounded-lg font-mono overflow-x-auto">
-{`{
-  "message": "conteúdo da prompt",
-  "history": [contextos],
-  "agent_id": "identificador opcional"
-}`}
+{`POST /webhook
+Authorization: Bearer <token>
+{ "message": "conteúdo da prompt" }`}
           </pre>
+        </section>
+
+        <section>
+          <h3 className="text-lg font-bold text-zinc-900 flex items-center gap-2 mb-4">
+            <Clock className="w-5 h-5 text-indigo-600" aria-hidden="true" /> 5. Rotinas
+          </h3>
+          <p className="mb-2 text-sm">
+            Botão <b>Rotinas</b> no topo: crie um prompt com agenda (<code className="bg-zinc-100 px-1 rounded">diário 07:00</code>,{' '}
+            <code className="bg-zinc-100 px-1 rounded">a cada 30 min</code> ou cron <code className="bg-zinc-100 px-1 rounded">0 8 * * 1-5</code>).
+            O agente roda sozinho no fuso America/Rio_Branco e o resultado aparece no canal <b>Rotinas</b>.
+          </p>
+          <p className="text-sm">
+            Rotinas só usam ferramentas de leitura; as que escrevem ou executam são bloqueadas. No chat:{' '}
+            <code className="bg-zinc-100 px-1 rounded">/rotinas</code> lista e <code className="bg-zinc-100 px-1 rounded">/rotina &lt;nome&gt;</code> roda agora.
+          </p>
         </section>
       </div>
     </Modal>

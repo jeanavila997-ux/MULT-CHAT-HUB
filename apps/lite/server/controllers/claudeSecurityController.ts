@@ -49,7 +49,9 @@ export const handleClaudeSecurityStream = async (req: Request, res: Response) =>
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), CLAUDE_SECURITY_TIMEOUT_MS);
 
-  req.on('close', () => {
+  // 'close' do req dispara assim que o body é lido (Node >= 16); usar o do res.
+  res.on('close', () => {
+    if (res.writableEnded) return;
     clientGone = true;
     controller.abort();
     clearTimeout(timeoutHandle);

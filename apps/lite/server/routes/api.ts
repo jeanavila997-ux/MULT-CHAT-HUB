@@ -1,7 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { handleChat, handleChatStream } from '../controllers/chatController.js';
+import { handleChat, handleChatStream, handleOllamaModels } from '../controllers/chatController.js';
 import { handleToolExecution, availableTools } from '../controllers/toolController.js';
 import { handleClaudeSecurityStream } from '../controllers/claudeSecurityController.js';
+import { handleListRoutines, handleCreateRoutine, handleUpdateRoutine, handleDeleteRoutine, handleRunRoutine } from '../controllers/routinesController.js';
+import { handleListGateways, handleConnectGateway, handleGatewayMessage, handleDisconnectGateway } from '../controllers/gatewayController.js';
+import { handleAgentChat, handleAgentConfirm, handleAgentSkills, handleAgentTools } from '../controllers/agentController.js';
 
 const router = Router();
 
@@ -62,9 +65,26 @@ router.get('/tools', (_req, res) => {
 // in server/index.ts outside /api and intentionally remains public for probes.
 router.use(requireActivationSecret);
 
+router.get('/models/ollama', handleOllamaModels);
+router.get('/agent/skills', handleAgentSkills);
+router.get('/agent/tools', handleAgentTools);
+router.post('/agent/chat', rateLimit, handleAgentChat);
+router.post('/agent/confirm', rateLimit, handleAgentConfirm);
 router.post('/chat', handleChat);
 router.post('/chat/stream', rateLimit, handleChatStream);
 router.post('/chat/claude-security', rateLimit, handleClaudeSecurityStream);
 router.post('/tools/execute', rateLimit, handleToolExecution);
+// Rotinas agendadas (apps/lite/data/routines.json)
+router.get('/routines', handleListRoutines);
+router.post('/routines', rateLimit, handleCreateRoutine);
+router.put('/routines/:id', rateLimit, handleUpdateRoutine);
+router.delete('/routines/:id', rateLimit, handleDeleteRoutine);
+router.post('/routines/:id/run', rateLimit, handleRunRoutine);
+// Gateway externo (NullClaw): pareamento e mensagens passam pelo servidor
+router.get('/gateway', handleListGateways);
+router.post('/gateway/connect', rateLimit, handleConnectGateway);
+router.post('/gateway/:id/message', rateLimit, handleGatewayMessage);
+router.delete('/gateway/:id', rateLimit, handleDisconnectGateway);
+
 
 export default router;

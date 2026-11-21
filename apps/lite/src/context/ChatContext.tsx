@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
-import { Agent, Message, Channel, Task, AnalysisResult, ProviderName, ProviderConfig } from '../types';
+import { Agent, Message, Channel, Task, AnalysisResult, ProviderName, ProviderConfig, Routine, RoutineRun } from '../types';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 import { parseCsv, newMsgId } from '../lib/utils';
 import { processCommands } from '../lib/commandProcessor';
@@ -22,6 +22,7 @@ interface ChatContextType {
   streamingId: string | null;
   activeProvider: ProviderName;
   providerConfig: Record<ProviderName, ProviderConfig>;
+  agentToolsEnabled: boolean;
 
   setCurrentChannel: (ch: string) => void;
   addChannel: (ch: Channel) => void;
@@ -34,9 +35,13 @@ interface ChatContextType {
   setThinkingLevel: (level: 'LOW' | 'HIGH') => void;
   setActiveProvider: (p: ProviderName) => void;
   updateProviderConfig: (p: ProviderName, cfg: Partial<ProviderConfig>) => void;
+  setAgentToolsEnabled: (v: boolean) => void;
+  resolveToolConfirmation: (messageId: string, approved: boolean) => Promise<void>;
   setExternalAgentURL: (url: string) => void;
   setPairingCode: (code: string) => void;
   connectExternalAgent: () => Promise<void>;
+  disconnectExternalAgent: (gatewayId: string) => Promise<void>;
+  syncRoutineResults: (routines: Routine[]) => void;
   transcribeAudio: (callback: (text: string) => void) => void;
   uploadDataset: (file: File) => Promise<void>;
 }
@@ -44,10 +49,12 @@ interface ChatContextType {
 export const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'mch:state:v1';
+const AGENT_TOOLS_KEY = 'mch:agent-tools';
 const MAX_PERSIST_MESSAGES = 100;
 
 const DEFAULT_PROVIDER_CONFIG: Record<ProviderName, ProviderConfig> = {
-  ollama:      { model: 'fazendaavila2026/avila:latest', apiKey: '', baseUrl: 'http://localhost:11434' },
+  // model vazio = usa OLLAMA_MODEL do servidor (apps/lite/.env.local)
+  ollama:      { model: '', apiKey: '', baseUrl: 'http://127.0.0.1:11434' },
   openai:      { model: 'gpt-4o-mini', apiKey: '' },
   anthropic:   { model: 'claude-haiku-4-5-20251001', apiKey: '' },
   gemini:      { model: 'gemini-2.0-flash-lite', apiKey: '' },
@@ -55,14 +62,17 @@ const DEFAULT_PROVIDER_CONFIG: Record<ProviderName, ProviderConfig> = {
   llamacpp:    { model: 'local-model', apiKey: '', baseUrl: 'http://127.0.0.1:8080/v1' },
   cli:         { model: 'gpt-4o-mini', apiKey: '', baseUrl: 'http://localhost:11434' },
   powershell:  { model: 'gpt-4o-mini', apiKey: '', baseUrl: 'http://localhost:11434' },
-  grok:        { model: 'grok-2-latest', apiKey: '', baseUrl: 'https://api.x.ai/v1' },
-  grok_bot:    { model: 'grok-2-latest', apiKey: '', baseUrl: 'https://api.x.ai/v1' },
+  grok:        { model: 'grok-4.7', apiKey: '', baseUrl: 'https://api.x.ai/v1' },
+  grok_bot:    { model: 'grok-4.7', apiKey: '', baseUrl: 'https://api.x.ai/v1' },
   codex:       { model: 'gpt-4o-mini', apiKey: '', baseUrl: 'https://api.openai.com/v1' },
   claude_code: { model: 'claude-3-5-sonnet-latest', apiKey: '', baseUrl: 'https://api.anthropic.com' },
   hermes:      { model: 'hermes-3-llama-3.1-70b', apiKey: '', baseUrl: 'https://api.openai.com/v1' },
   opencode:    { model: 'gpt-4o-mini', apiKey: '', baseUrl: 'https://api.openai.com/v1' },
-  router9:     { model: 'openai/gpt-4o-mini', apiKey: '', baseUrl: 'https://openrouter.ai/api/v1' },
+  // model vazio = usa ROUTER_MODEL do servidor
+  router9:     { model: '', apiKey: '', baseUrl: 'http://127.0.0.1:20128/v1' },
   deepseek:    { model: 'deepseek-chat', apiKey: '', baseUrl: 'https://api.deepseek.com/v1' },
+  nvidia:      { model: 'nvidia/nemotron-nano-3-30b-a3b', apiKey: '', baseUrl: 'https://integrate.api.nvidia.com/v1' },
+  cloudflare:  { model: '@cf/meta/llama-4-scout-17b-16e-instruct', apiKey: '' },
 };
 
 const DEFAULT_MESSAGES: Message[] = [
@@ -287,6 +297,36 @@ async function readSseStream(
   return tokens.join('');
 }
 
+// Rotinas: resultados viram mensagens no canal "Rotinas" (cada execução uma vez só).
+const ROUTINES_SEEN_KEY = 'mch:routines-seen';
+const ROUTINES_CHANNEL = 'Rotinas';
+
+function formatRoutineRun(r: Routine, h: RoutineRun): string {
+  const when = new Date(h.finishedAt).toLocaleString('pt-BR', { timeZone: 'America/Rio_Branco', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const head = `[${h.trigger === 'manual' ? 'rodada manual' : 'agenda'} · ${when} (Rio Branco) · ${h.model || h.provider}]`;
+  const body = h.status === 'ok' ? h.text : `Erro: ${h.error ?? 'desconhecido'}`;
+  const extra = [
+    h.toolsUsed.length ? `Ferramentas usadas: ${h.toolsUsed.join(', ')}` : '',
+    h.blocked.length ? `Bloqueadas (rotina só lê): ${h.blocked.join(', ')}` : '',
+  ].filter(Boolean).join('\n');
+  return [head, body, extra].filter(Boolean).join('\n\n');
+}
+
+// Agente de um gateway pareado (o token fica no servidor; aqui só o id).
+function gatewayAgent(g: { id: string; url: string }): Agent {
+  return {
+    name: `NullClaw ${g.url.replace(/^https?:\/\//, '')}`,
+    specialty: 'Agente Conectado',
+    description: `Agente rodando em ${g.url}`,
+    permissions: ['full_access'],
+    provider: 'NullClaw Gateway',
+    status: 'Online',
+    thinkingLevel: 'HIGH',
+    tools: [],
+    gatewayId: g.id,
+  };
+}
+
 export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const persisted = loadPersisted();
   const confirm = useConfirm();
@@ -306,11 +346,18 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [activeProvider, setActiveProvider] = useState<ProviderName>(
-    () => (persisted.activeProvider ?? 'openai')
+    () => (persisted.activeProvider ?? 'ollama')
   );
   const [providerConfig, setProviderConfig] = useState<Record<ProviderName, ProviderConfig>>(
     () => mergeProviderConfig(persisted.providerConfig)
   );
+  const [agentToolsEnabled, setAgentToolsEnabledState] = useState<boolean>(() => {
+    try { return localStorage.getItem(AGENT_TOOLS_KEY) !== 'off'; } catch { return true; }
+  });
+  const setAgentToolsEnabled = useCallback((v: boolean) => {
+    setAgentToolsEnabledState(v);
+    try { localStorage.setItem(AGENT_TOOLS_KEY, v ? 'on' : 'off'); } catch { /* localStorage indisponível */ }
+  }, []);
 
   const updateProviderConfig = useCallback((p: ProviderName, cfg: Partial<ProviderConfig>) => {
     setProviderConfig((prev) => ({ ...prev, [p]: { ...prev[p], ...cfg } }));
@@ -342,6 +389,135 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     setMessages((prev) => prev.map((m) => m.id === id ? { ...m, text } : m));
   }, []);
 
+  const syncRoutineResults = useCallback((list: Routine[]) => {
+    let seen = 0;
+    try { seen = Number(localStorage.getItem(ROUTINES_SEEN_KEY)) || 0; } catch { /* localStorage indisponível */ }
+    const fresh = list
+      .flatMap((r) => (r.history ?? []).map((h) => ({ r, h })))
+      .filter(({ h }) => new Date(h.finishedAt).getTime() > seen)
+      .sort((a, b) => a.h.finishedAt.localeCompare(b.h.finishedAt));
+    if (fresh.length === 0) return;
+    setChannels((prev) => (prev.some((c) => c.name === ROUTINES_CHANNEL) ? prev : [...prev, { name: ROUTINES_CHANNEL, members: [], isPrivate: false }]));
+    setMessages((prev) => {
+      const ids = new Set(prev.map((m) => m.id));
+      const add = fresh
+        .filter(({ h }) => !ids.has(`routine-${h.id}`))
+        .map(({ r, h }) => ({ id: `routine-${h.id}`, channel: ROUTINES_CHANNEL, sender: `Rotina: ${r.name}`, text: formatRoutineRun(r, h) }));
+      return add.length ? [...prev, ...add] : prev;
+    });
+    const max = Math.max(...fresh.map(({ h }) => new Date(h.finishedAt).getTime()));
+    try { localStorage.setItem(ROUTINES_SEEN_KEY, String(max)); } catch { /* localStorage indisponível */ }
+  }, []);
+
+  // Busca resultados novos das rotinas a cada 30 s.
+  useEffect(() => {
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/routines', { headers: getBackendAuthHeaders() });
+        if (!res.ok || stopped) return;
+        const data = await res.json() as { routines?: Routine[] };
+        if (Array.isArray(data.routines)) syncRoutineResults(data.routines);
+      } catch { /* backend fora do ar */ }
+    };
+    void poll();
+    const timer = setInterval(poll, 30_000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [syncRoutineResults]);
+
+  // Gateways já pareados (o servidor guarda o token) voltam como agentes ao abrir o app.
+  useEffect(() => {
+    fetch('/api/gateway', { headers: getBackendAuthHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { gateways?: { id: string; url: string }[] } | null) => {
+        const list = Array.isArray(data?.gateways) ? data.gateways : [];
+        if (list.length) setAgents((prev) => [...prev.filter((a) => !a.gatewayId), ...list.map(gatewayAgent)]);
+      })
+      .catch(() => { /* backend fora do ar */ });
+  }, []);
+
+  // Resposta do agente local (/api/agent/chat e /api/agent/confirm)
+  const applyAgentResponse = async (response: globalThis.Response, senderName: string, channel: string) => {
+    const data = await response.json().catch(() => ({})) as {
+      status?: 'done' | 'needs_confirmation';
+      text?: string;
+      error?: string;
+      pendingId?: string;
+      tool?: { name: string; args: Record<string, unknown>; source: string; description: string };
+      trace?: { tool: string; ok: boolean; denied?: boolean }[];
+    };
+    if (!response.ok || data.error) {
+      addMessage({ id: newMsgId(), channel, sender: 'Sistema', text: data.error ?? `Erro do agente local (${response.status}).` });
+      return;
+    }
+    if (data.status === 'needs_confirmation' && data.pendingId && data.tool) {
+      addMessage({
+        id: newMsgId(),
+        channel,
+        sender: 'Sistema',
+        text: `O agente quer executar "${data.tool.name}" (${data.tool.source}). Confirma?`,
+        pendingTool: { pendingId: data.pendingId, ...data.tool, status: 'pending' },
+      });
+      return;
+    }
+    const used = (data.trace ?? []).filter((t) => !t.denied).map((t) => (t.ok ? t.tool : `${t.tool} (erro)`));
+    const note = used.length ? `\n\nFerramentas usadas: ${used.join(', ')}` : '';
+    addMessage({ id: newMsgId(), channel, sender: senderName, text: (data.text || 'Sem resposta.') + note });
+  };
+
+  const resolveToolConfirmation = async (messageId: string, approved: boolean) => {
+    const msg = messagesRef.current.find((m) => m.id === messageId);
+    const pendingTool = msg?.pendingTool;
+    if (!msg || !pendingTool || pendingTool.status !== 'pending') return;
+    setMessages((prev) => prev.map((m) => (m.id === messageId && m.pendingTool
+      ? { ...m, pendingTool: { ...m.pendingTool, status: approved ? 'approved' : 'denied' } }
+      : m)));
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/agent/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getBackendAuthHeaders() },
+        body: JSON.stringify({ pendingId: pendingTool.pendingId, approved }),
+      });
+      await applyAgentResponse(response, 'Agente Local', msg.channel);
+    } catch {
+      addMessage({ id: newMsgId(), channel: msg.channel, sender: 'Sistema', text: 'Falha de comunicação. Verifique se o backend está rodando.' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // /rotinas lista; /rotina <nome> roda agora (resultado no canal Rotinas).
+  const routineCommand = async (input: string) => {
+    const say = (text: string) => addMessage({ id: newMsgId(), channel: currentChannel, sender: 'Sistema', text });
+    try {
+      const res = await fetch('/api/routines', { headers: getBackendAuthHeaders() });
+      const data = await res.json().catch(() => ({})) as { routines?: Routine[]; error?: string };
+      if (!res.ok) { say(data.error ?? `Erro ${res.status} ao listar rotinas.`); return; }
+      const list = data.routines ?? [];
+      if (input === '/rotinas') {
+        say(list.length
+          ? `${list.map((r) => `• ${r.name} — ${r.schedule} — ${r.active ? 'ativa' : 'pausada'}${r.paidProvider ? ' — provedor pago' : ''}`).join('\n')}\n\nRodar agora: /rotina <nome>. Criar ou editar: botão "Rotinas" no topo.`
+          : 'Nenhuma rotina. Crie pelo botão "Rotinas" no topo.');
+        return;
+      }
+      const name = input.slice('/rotina '.length).trim();
+      const r = list.find((x) => x.name.toLowerCase() === name.toLowerCase());
+      if (!r) { say(`Rotina "${name}" não encontrada. Veja /rotinas.`); return; }
+      if (r.paidProvider) {
+        const ok = await confirm({ title: 'Rodar com provedor pago?', message: `"${r.name}" usa ${r.provider}, que pode cobrar por uso.`, confirmLabel: 'Rodar', variant: 'danger' });
+        if (!ok) return;
+      }
+      say(`Rodando "${r.name}"… o resultado vai para o canal ${ROUTINES_CHANNEL}.`);
+      const run = await fetch(`/api/routines/${encodeURIComponent(r.id)}/run`, { method: 'POST', headers: getBackendAuthHeaders() });
+      const out = await run.json().catch(() => ({})) as { error?: string; routine?: Routine };
+      if (!run.ok) { say(out.error ?? `Erro ${run.status} ao rodar a rotina.`); return; }
+      if (out.routine) syncRoutineResults([out.routine]);
+    } catch {
+      say('Falha de comunicação com o backend.');
+    }
+  };
+
   const sendMessage = async (input: string) => {
     const channel = channels.find((c) => c.name === currentChannel);
     if (channel?.isPrivate && !channel.members.includes('User')) {
@@ -372,8 +548,10 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
           setReports([]);
           localStorage.removeItem(STORAGE_KEY);
         }
+      } else if (input === '/rotinas' || input.startsWith('/rotina ')) {
+        await routineCommand(input);
       } else {
-        addMessage({ id: newMsgId(), channel: currentChannel, sender: 'Sistema', text: 'Comandos locais: /clear, /reset' });
+        addMessage({ id: newMsgId(), channel: currentChannel, sender: 'Sistema', text: 'Comandos locais: /clear, /reset, /rotinas, /rotina <nome>' });
       }
       return;
     }
@@ -389,16 +567,17 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
       if (activeAgent?.provider === 'NullClaw Gateway') {
         senderName = activeAgent.name;
-        const response = await fetch(`${externalAgentURL}/webhook`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${pairingCode}` },
-          body: JSON.stringify({ message: input }),
-        });
-        if (response.ok) {
-          const data = await response.json() as { reply?: string; response?: string };
-          responseText = data.reply || data.response || JSON.stringify(data);
+        if (!activeAgent.gatewayId) {
+          responseText = 'Este é o modelo do agente NullClaw. Conecte um gateway em "Gateway Externo" (URL + código de pareamento) e selecione o agente conectado.';
         } else {
-          responseText = `Erro no Gateway (${response.status}).`;
+          // O servidor do lite usa o token deste gateway (evita CORS e não expõe o token).
+          const response = await fetch(`/api/gateway/${encodeURIComponent(activeAgent.gatewayId)}/message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getBackendAuthHeaders() },
+            body: JSON.stringify({ message: input }),
+          });
+          const data = await response.json().catch(() => ({})) as { text?: string; error?: string };
+          responseText = response.ok ? (data.text || 'Sem resposta.') : (data.error ?? `Erro no Gateway (${response.status}).`);
         }
         addMessage({ id: newMsgId(), channel: currentChannel, sender: senderName, text: responseText });
 
@@ -448,6 +627,23 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
         } finally {
           setStreamingId(null);
         }
+
+      } else if (activeProvider === 'ollama' && agentToolsEnabled) {
+        // Agente local com tool-calling (ferramentas, MCP, skills). Ferramentas de
+        // escrita voltam como needs_confirmation e só rodam após o clique do usuário.
+        senderName = activeAgent?.name ?? 'Agente Local';
+        const channelHistory = messagesRef.current
+          .filter((m) => m.channel === currentChannel && m.sender !== 'Sistema')
+          .slice(-20)
+          .map((m) => ({ role: m.sender === 'User' ? 'user' : 'assistant', content: m.text }));
+        const response = await fetch('/api/agent/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getBackendAuthHeaders() },
+          body: JSON.stringify({ input, history: channelHistory, model: providerConfig.ollama.model }),
+        });
+        await applyAgentResponse(response, senderName, currentChannel);
+        // responseText fica vazio de propósito: /use_tool (processCommands) não roda
+        // no modo agente, para nenhuma ferramenta escapar da confirmação.
 
       } else if (activeProvider === 'ollama') {
         // SSE streaming via Ollama
@@ -536,6 +732,12 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
           setTasks,
           setDataCache,
           setReports,
+          confirmWrite: (toolName, args) => confirm({
+            title: `Executar ${toolName}?`,
+            message: `O modelo pediu ${toolName} com: ${JSON.stringify(args).slice(0, 400)}`,
+            confirmLabel: 'Executar',
+            variant: 'danger',
+          }),
         });
       }
     } catch {
@@ -596,42 +798,39 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Pareamento: o servidor troca o código (uso único) por um token no /pair do
+  // gateway e guarda o token; o navegador recebe só o id da conexão.
   const connectExternalAgent = async () => {
     if (!externalAgentURL.trim() || !pairingCode.trim()) return;
-
-    // Evita duplicatas pelo mesmo URL
-    const alreadyConnected = agents.some(
-      (a) => a.provider === 'NullClaw Gateway' && a.description.includes(externalAgentURL)
-    );
-    if (alreadyConnected) {
-      addMessage({ id: newMsgId(), channel: currentChannel, sender: 'Sistema', text: `Agente em ${externalAgentURL} já está conectado.` });
-      return;
-    }
-
+    const say = (text: string) => addMessage({ id: newMsgId(), channel: currentChannel, sender: 'Sistema', text });
     try {
-      const response = await fetch(`${externalAgentURL}/health`);
-      if (response.ok) {
-        setAgents((prev) => [
-          ...prev,
-          {
-            name: 'NullClaw Externo',
-            specialty: 'Agente Conectado',
-            description: `Agente rodando em ${externalAgentURL}`,
-            permissions: ['full_access'],
-            provider: 'NullClaw Gateway',
-            status: 'Online',
-            thinkingLevel: 'HIGH',
-            tools: []
-          }
-        ]);
-        addMessage({ id: newMsgId(), channel: currentChannel, sender: 'Sistema', text: `Conectado com sucesso ao agente em ${externalAgentURL}!` });
-        setPairingCode('');
-      } else {
-        addMessage({ id: newMsgId(), channel: currentChannel, sender: 'Sistema', text: `Erro: Gateway ${externalAgentURL} retornou erro.` });
+      const response = await fetch('/api/gateway/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getBackendAuthHeaders() },
+        body: JSON.stringify({ url: externalAgentURL.trim(), code: pairingCode.trim() }),
+      });
+      const data = await response.json().catch(() => ({})) as { id?: string; url?: string; error?: string };
+      if (!response.ok || !data.id || !data.url) {
+        say(`Pareamento falhou: ${data.error ?? `erro ${response.status}`}`);
+        return;
       }
+      const agent = gatewayAgent({ id: data.id, url: data.url });
+      setActiveAgentIndex(null);
+      setAgents((prev) => [...prev.filter((a) => a.name !== agent.name), agent]);
+      setPairingCode(''); // o código já foi trocado por um token guardado no servidor
+      say(`Conectado ao gateway ${data.url}. Selecione "${agent.name}" na lista de agentes para conversar.`);
     } catch {
-      addMessage({ id: newMsgId(), channel: currentChannel, sender: 'Sistema', text: 'Erro de conexão: Não alcançável.' });
+      say('Erro de conexão com o servidor do lite.');
     }
+  };
+
+  const disconnectExternalAgent = async (gatewayId: string) => {
+    try {
+      await fetch(`/api/gateway/${encodeURIComponent(gatewayId)}`, { method: 'DELETE', headers: getBackendAuthHeaders() });
+    } catch { /* remove da lista mesmo assim */ }
+    setActiveAgentIndex(null);
+    setAgents((prev) => prev.filter((a) => a.gatewayId !== gatewayId));
+    addMessage({ id: newMsgId(), channel: currentChannel, sender: 'Sistema', text: 'Gateway desconectado; o token foi apagado do servidor do lite.' });
   };
 
   const transcribeAudio = (callback: (t: string) => void) => {
@@ -656,7 +855,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   return (
     <ChatContext.Provider value={{
       messages, channels, currentChannel, agents, tasks, dataCache, reports, notifications, activeAgentIndex,
-      externalAgentURL, pairingCode, thinkingLevel, isLoading, streamingId, activeProvider, providerConfig,
+      externalAgentURL, pairingCode, thinkingLevel, isLoading, streamingId, activeProvider, providerConfig, agentToolsEnabled,
       setCurrentChannel,
       addChannel: (ch) => setChannels((prev) => [...prev, ch]),
       addMessage,
@@ -668,9 +867,13 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       setThinkingLevel,
       setActiveProvider,
       updateProviderConfig,
+      setAgentToolsEnabled,
+      resolveToolConfirmation,
       setExternalAgentURL,
       setPairingCode,
       connectExternalAgent,
+      disconnectExternalAgent,
+      syncRoutineResults,
       transcribeAudio,
       uploadDataset,
     }}>

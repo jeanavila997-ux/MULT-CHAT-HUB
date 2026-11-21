@@ -4,13 +4,14 @@
  */
 
 import { useState, useEffect } from 'react';
-import { BookOpen, Menu, Moon, Sun, Users } from 'lucide-react';
+import { BookOpen, Clock, Menu, Moon, Sun, Users } from 'lucide-react';
 import { ChatProvider } from './context/ChatContext';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import AgentConfig from './components/AgentConfig';
 import ManualModal from './components/ManualModal';
+import RoutinesModal from './components/RoutinesModal';
 import { Button } from './components/ui/Button';
 import { IconButton } from './components/ui/IconButton';
 import { Drawer } from './components/ui/Drawer';
@@ -20,6 +21,7 @@ import { useIsMobile, useIsTablet } from './hooks/useMediaQuery';
 
 export default function App() {
   const manual = useDisclosure();
+  const routinesUi = useDisclosure();
   const sidebarDrawer = useDisclosure();
   const agentDrawer = useDisclosure();
   const isMobile = useIsMobile();
@@ -70,6 +72,21 @@ export default function App() {
                 aria-label={isDark ? 'Mudar para modo claro' : 'Mudar para modo escuro'}
                 icon={isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
                 onClick={() => setIsDark((d) => !d)}
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Clock className="w-4 h-4" />}
+                onClick={routinesUi.open}
+                className="hidden sm:inline-flex"
+              >
+                Rotinas
+              </Button>
+              <IconButton
+                aria-label="Rotinas"
+                icon={<Clock className="w-5 h-5" />}
+                onClick={routinesUi.open}
+                className="sm:hidden"
               />
               <Button
                 variant="secondary"
@@ -135,6 +152,7 @@ export default function App() {
           </main>
 
           <ManualModal isOpen={manual.isOpen} onClose={manual.close} />
+          <RoutinesModal isOpen={routinesUi.isOpen} onClose={routinesUi.close} />
         </div>
       </ChatProvider>
     </ConfirmDialogProvider>
