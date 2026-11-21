@@ -4,6 +4,8 @@ import { handleToolExecution, availableTools } from '../controllers/toolControll
 import { handleClaudeSecurityStream } from '../controllers/claudeSecurityController.js';
 import { handleListRoutines, handleCreateRoutine, handleUpdateRoutine, handleDeleteRoutine, handleRunRoutine } from '../controllers/routinesController.js';
 import { handleListGateways, handleConnectGateway, handleGatewayMessage, handleDisconnectGateway } from '../controllers/gatewayController.js';
+import { buildHubRouter } from './hubRoutes.js';
+import { getHub } from '../hub.js';
 import { handleAgentChat, handleAgentConfirm, handleAgentSkills, handleAgentTools } from '../controllers/agentController.js';
 
 const router = Router();
@@ -85,6 +87,8 @@ router.get('/gateway', handleListGateways);
 router.post('/gateway/connect', rateLimit, handleConnectGateway);
 router.post('/gateway/:id/message', rateLimit, handleGatewayMessage);
 router.delete('/gateway/:id', rateLimit, handleDisconnectGateway);
+// Agentes, provedores/chaves, MCP e Mestre do PC (pasta MCH_DATA_ROOT).
+router.use(buildHubRouter(getHub));
 
 
 export default router;

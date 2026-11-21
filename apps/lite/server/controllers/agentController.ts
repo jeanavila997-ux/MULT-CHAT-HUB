@@ -3,6 +3,8 @@ import { ChatFn, LoopMessage, LoopResult, LoopState, PendingStore, runToolLoop, 
 import { buildAgentTools, skillDirs } from '../agent/agentTools.js';
 import { listSkills, SkillMeta } from '../agent/skills.js';
 import { DEFAULT_LOCAL_MODEL } from '../providers/catalog.js';
+import { getHub } from '../hub.js';
+import { resolveAgentRun, LEGACY_SCOPE, AgentScope } from '../agent/agentRun.js';
 import { paidGuardError } from '../providers/paidGuard.js';
 
 // Agente local: Ollama com tool-calling nativo (/api/chat + tools).
@@ -86,30 +88,45 @@ export function ollamaChat(model: string, timeoutMs = 120_000): ChatFn {
   };
 }
 
-const pending = new PendingStore<{ model: string }>();
+const pending = new PendingStore<{ model: string; scope: AgentScope; agentId: string | null }>();
 
-function respond(res: Response, result: LoopResult, model: string) {
+function respond(res: Response, result: LoopResult, model: string, scope: AgentScope = LEGACY_SCOPE, agentId: string | null = null) {
   if (result.status === 'done') {
     slog('INFO', 'agent_done', { model, iterations: result.iterations, tools: result.trace.map((t) => t.tool) });
-    return res.json({ status: 'done', text: result.text || 'Sem resposta do modelo.', trace: result.trace, model });
+    return res.json({ status: 'done', text: result.text || 'Sem resposta do modelo.', trace: result.trace, model, agentId });
   }
-  const pendingId = pending.put(result.state, { model });
+  const pendingId = pending.put(result.state, { model, scope, agentId });
   slog('INFO', 'agent_needs_confirmation', { model, tool: result.pending.name });
-  return res.json({ status: 'needs_confirmation', pendingId, tool: result.pending, trace: result.state.trace, model });
+  return res.json({ status: 'needs_confirmation', pendingId, tool: result.pending, trace: result.state.trace, model, agentId });
+}
+
+async function hubOrNull() {
+  try { return await getHub(); } catch (err) {
+    slog('WARN', 'hub_unavailable', { error: err instanceof Error ? err.message.slice(0, 200) : String(err) });
+    return null;
+  }
 }
 
 export const handleAgentChat = async (req: Request, res: Response) => {
-  const { input, history = [], model: rawModel } = req.body ?? {};
+  const { input, history = [], model: rawModel, agentId } = req.body ?? {};
   if (typeof input !== 'string' || !input.trim()) {
     return res.status(400).json({ error: 'input é obrigatório.' });
   }
-  const model = typeof rawModel === 'string' && rawModel.trim() ? rawModel.trim() : ollamaModel();
+  const hub = await hubOrNull();
+  const agent = typeof agentId === 'string' && agentId && hub ? hub.registry.get(agentId) : null;
+  if (typeof agentId === 'string' && agentId && !agent) return res.status(404).json({ error: `Agente não encontrado: ${agentId}` });
+  let run;
+  try {
+    run = resolveAgentRun(agent, { model: typeof rawModel === 'string' ? rawModel : undefined, fallbackModel: ollamaModel() }, listSkills(skillDirs()));
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+  const model = run.model;
   const paidError = paidGuardError('ollama', model, req.body?.confirmPaid);
   if (paidError) return res.status(402).json({ error: paidError, needsPaidConfirmation: true });
   try {
-    const { tools } = await buildAgentTools();
-    const skills = listSkills(skillDirs());
-    const system = [await modelSystem(model), buildAgentRules(skills)].filter(Boolean).join('\n\n');
+    const { tools } = await buildAgentTools(run.scope, hub?.mcp ?? null);
+    const system = [await modelSystem(model), run.systemPrompt, buildAgentRules(run.skills)].filter(Boolean).join('\n\n');
     const historyMessages: LoopMessage[] = (Array.isArray(history) ? history : [])
       .slice(-10)
       .map((m: { role?: string; content?: unknown }) => ({
@@ -123,10 +140,10 @@ export const handleAgentChat = async (req: Request, res: Response) => {
       trace: [],
     };
     const result = await runToolLoop({ chat: ollamaChat(model), tools, maxIterations: maxIterations() }, state);
-    return respond(res, result, model);
+    return respond(res, result, model, run.scope, run.agentId);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    slog('WARN', 'agent_error', { model, error: msg.slice(0, 200) });
+    slog('WARN', 'agent_error', { model, agentId: run.agentId, error: msg.slice(0, 200) });
     return res.status(503).json({ error: `Agente local indisponível: ${msg}` });
   }
 };
@@ -141,13 +158,14 @@ export const handleAgentConfirm = async (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Confirmação expirada ou já usada. Envie o pedido de novo.' });
   }
   try {
-    const { tools } = await buildAgentTools();
+    const hub = await hubOrNull();
+    const { tools } = await buildAgentTools(entry.ctx.scope, hub?.mcp ?? null);
     const result = await runToolLoop(
       { chat: ollamaChat(entry.ctx.model), tools, maxIterations: maxIterations() },
       entry.state,
       { approved: approved === true },
     );
-    return respond(res, result, entry.ctx.model);
+    return respond(res, result, entry.ctx.model, entry.ctx.scope, entry.ctx.agentId);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     slog('WARN', 'agent_confirm_error', { error: msg.slice(0, 200) });
@@ -160,7 +178,10 @@ export const handleAgentSkills = (_req: Request, res: Response) => {
   res.json({ dirs, skills: listSkills(dirs).map(({ name, description, dir }) => ({ name, description, dir })) });
 };
 
-export const handleAgentTools = async (_req: Request, res: Response) => {
-  const { status } = await buildAgentTools();
+export const handleAgentTools = async (req: Request, res: Response) => {
+  const hub = await hubOrNull();
+  const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : '';
+  const agent = agentId && hub ? hub.registry.get(agentId) : null;
+  const { status } = await buildAgentTools(agent ? { id: agent.id, tools: agent.tools } : LEGACY_SCOPE, hub?.mcp ?? null);
   res.json({ tools: status });
 };

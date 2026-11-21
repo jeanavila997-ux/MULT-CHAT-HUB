@@ -7,7 +7,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { AgentTool } from './toolLoop.js';
 import { listSkills, loadSkillBody, resolveSkillDirs } from './skills.js';
-import { McpHttpClient, McpTool } from './mcpClient.js';
+import type { McpManager } from '../mcp/manager.js';
+import type { AgentScope } from './agentRun.js';
 import { runAppTool } from '../controllers/toolController.js';
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -153,45 +154,6 @@ export function parseWebhookAllowlist(raw: string | undefined): Map<string, stri
     map.set(name, url);
   }
   return map;
-}
-
-// ── Mestre do PC (MCP Streamable HTTP) ─────────────────────────────────────────
-
-const DEFAULT_MCP_READONLY = ['mestre_system_status', 'mestre_list_operations', 'mestre_list_memories'];
-const TOOL_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
-
-let mcpClient: McpHttpClient | null = null;
-let mcpKey = '';
-let mcpCache: { at: number; ttl: number; tools: McpTool[]; error?: string } | null = null;
-
-async function getMcpTools(): Promise<{ tools: McpTool[]; error?: string }> {
-  const url = process.env.MESTRE_MCP_URL?.trim();
-  if (!url) return { tools: [], error: 'MESTRE_MCP_URL vazio no .env.local' };
-  if (!/^https?:\/\//i.test(url)) return { tools: [], error: 'MESTRE_MCP_URL inválido' };
-  const key = `${url}|${process.env.MESTRE_MCP_TOKEN ? 'token' : ''}`;
-  if (!mcpClient || mcpKey !== key) {
-    const token = process.env.MESTRE_MCP_TOKEN?.trim() || '';
-    // O Mestre aceita X-Mestre-Mcp-Token ou Bearer; mandamos os dois.
-    mcpClient = new McpHttpClient(url, token, 20_000, token ? { 'X-Mestre-Mcp-Token': token } : {});
-    mcpKey = key;
-    mcpCache = null;
-  }
-  if (mcpCache && Date.now() - mcpCache.at < mcpCache.ttl) return mcpCache;
-  try {
-    const tools = await mcpClient.listTools();
-    mcpCache = { at: Date.now(), ttl: 60_000, tools };
-  } catch (err: unknown) {
-    mcpClient.reset();
-    const msg = err instanceof Error ? err.message : String(err);
-    mcpCache = { at: Date.now(), ttl: 15_000, tools: [], error: `Mestre do PC fora do ar (${msg.slice(0, 120)})` };
-  }
-  return mcpCache;
-}
-
-function mcpReadOnlySet(): Set<string> {
-  const raw = process.env.MESTRE_MCP_READONLY_TOOLS?.trim();
-  const list = raw ? raw.split(',').map((s) => s.trim()).filter(Boolean) : DEFAULT_MCP_READONLY;
-  return new Set(list);
 }
 
 // ── Registro ───────────────────────────────────────────────────────────────────
@@ -378,12 +340,14 @@ function builtinCandidates(): Candidate[] {
   ];
 }
 
-export async function buildAgentTools(): Promise<{ tools: AgentTool[]; status: ToolStatus[] }> {
-  const candidates = builtinCandidates();
-  const names = new Set(candidates.map((c) => c.name));
+export async function buildAgentTools(scope: AgentScope | null = null, mcp: McpManager | null = null): Promise<{ tools: AgentTool[]; status: ToolStatus[] }> {
   const status: ToolStatus[] = [];
   const tools: AgentTool[] = [];
+  // Agente com ferramentas desligadas: conversa pura, sem nenhuma ferramenta.
+  if (scope && !scope.tools.enabled) return { tools, status };
 
+  const candidates = builtinCandidates();
+  const names = new Set(candidates.map((c) => c.name));
   for (const c of candidates) {
     status.push({ name: c.name, source: c.source, enabled: !c.disabledReason, requiresConfirmation: c.requiresConfirmation, ...(c.disabledReason ? { reason: c.disabledReason } : {}) });
     if (!c.disabledReason) {
@@ -392,34 +356,16 @@ export async function buildAgentTools(): Promise<{ tools: AgentTool[]; status: T
     }
   }
 
-  const mcp = await getMcpTools();
-  if (mcp.error) {
-    status.push({ name: 'mestre_*', source: 'mestre-mcp', enabled: false, requiresConfirmation: true, reason: mcp.error });
+  // Ferramentas MCP liberadas para este agente (classe fixa + confirmação fora da leitura).
+  if (scope && mcp) {
+    const { tools: mcpTools, errors } = await mcp.toolsForAgent(scope);
+    for (const e of errors) status.push({ name: 'mcp', source: 'mcp', enabled: false, requiresConfirmation: true, reason: e });
+    for (const t of mcpTools) {
+      if (names.has(t.name)) continue;
+      names.add(t.name);
+      status.push({ name: t.name, source: t.source, enabled: true, requiresConfirmation: t.requiresConfirmation });
+      tools.push(t);
+    }
   }
-  const readOnly = mcpReadOnlySet();
-  for (const t of mcp.tools) {
-    if (!TOOL_NAME_RE.test(t.name) || names.has(t.name)) continue;
-    names.add(t.name);
-    const requiresConfirmation = !readOnly.has(t.name);
-    status.push({ name: t.name, source: 'mestre-mcp', enabled: true, requiresConfirmation });
-    tools.push({
-      name: t.name,
-      description: (t.description || `Ferramenta MCP ${t.name}`).slice(0, 400),
-      parameters: t.inputSchema && typeof t.inputSchema === 'object' ? t.inputSchema : obj({}),
-      source: 'mestre-mcp',
-      requiresConfirmation,
-      run: async (args) => {
-        if (!mcpClient) throw new Error('Cliente MCP indisponível.');
-        try {
-          return await mcpClient.callTool(t.name, args);
-        } catch (err) {
-          mcpClient.reset();
-          mcpCache = null;
-          throw err;
-        }
-      },
-    });
-  }
-
   return { tools, status };
 }

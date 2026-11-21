@@ -5,6 +5,14 @@ export interface McpTool {
   name: string;
   description?: string;
   inputSchema?: Record<string, unknown>;
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
+}
+
+/** O que o gerenciador precisa de qualquer cliente MCP (HTTP ou stdio). */
+export interface McpClientLike {
+  listTools(): Promise<McpTool[]>;
+  callTool(name: string, args: Record<string, unknown>): Promise<string>;
+  reset(): void;
 }
 
 interface RpcMessage {
@@ -19,7 +27,7 @@ interface ToolCallResult {
   isError?: boolean;
 }
 
-export class McpHttpClient {
+export class McpHttpClient implements McpClientLike {
   private sessionId: string | null = null;
   private initialized = false;
   private nextId = 1;

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { createAdapter, DEFAULT_MODELS, normalizeProviderName, ProviderName } from '../../src/lib/providerAdapters.js';
 import { classifyOllamaModels, DEFAULT_LOCAL_MODEL, hiddenOllamaModels } from '../providers/catalog.js';
 import { paidGuardError } from '../providers/paidGuard.js';
+import { providerKey } from '../hub.js';
 
 // Lazy getters: dotenv.config() roda depois deste módulo ser importado (hoisting
 // de imports ESM), então process.env precisa ser lido por request.
@@ -181,8 +182,8 @@ export const handleChat = async (req: Request, res: Response) => {
       history = [],
       provider: rawProvider,
       model: modelOverride,
-      apiKey: reqApiKey,
     } = req.body;
+    // A chave nunca vem do navegador: cofre do Windows primeiro, depois .env.local.
 
     if (!input) {
       return res.status(400).json({ error: 'Input form is required' });
@@ -193,7 +194,7 @@ export const handleChat = async (req: Request, res: Response) => {
     const model = (typeof modelOverride === 'string' && modelOverride.trim()) ? modelOverride.trim() : defaultModel;
     const paidError = paidGuardError(provider, model, req.body?.confirmPaid);
     if (paidError) return res.status(402).json({ error: paidError, needsPaidConfirmation: true });
-    const apiKey = (typeof reqApiKey === 'string' && reqApiKey.trim()) ? reqApiKey.trim() : envKeyFor(provider);
+    const apiKey = await providerKey(provider, () => envKeyFor(provider));
     const baseUrl = baseUrlFor(provider);
     if (provider === 'cloudflare' && !baseUrl) {
       return res.status(400).json({ error: 'Cloudflare Workers AI: defina CLOUDFLARE_ACCOUNT_ID em apps/lite/.env.local.' });
@@ -478,7 +479,7 @@ export async function runProviderChat(rawProvider: string, modelOverride: string
       ],
       model,
       maxTokens: 1024,
-      apiKey: envKeyFor(provider),
+      apiKey: await providerKey(provider, () => envKeyFor(provider)),
       baseUrl,
       signal: controller.signal,
     });
