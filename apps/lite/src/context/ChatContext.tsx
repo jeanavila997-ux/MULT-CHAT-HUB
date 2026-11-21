@@ -5,6 +5,7 @@ import { parseCsv, newMsgId } from '../lib/utils';
 import { processCommands } from '../lib/commandProcessor';
 import { getBackendAuthHeaders } from '../lib/backendAuth';
 import { isPaidProviderModel } from '../lib/paid';
+import { hubApi, HubAgent } from '../lib/hubApi';
 
 interface ChatContextType {
   messages: Message[];
@@ -24,6 +25,14 @@ interface ChatContextType {
   activeProvider: ProviderName;
   providerConfig: Record<ProviderName, ProviderConfig>;
   agentToolsEnabled: boolean;
+  /** Agentes salvos em MultChatHub/agentes (servidor). */
+  hubAgents: HubAgent[];
+  hubRoot: string;
+  hubError: string | null;
+  activeHubAgentId: string | null;
+  selectHubAgent: (id: string | null) => void;
+  refreshHubAgents: () => Promise<void>;
+  replaceHubAgent: (agent: HubAgent) => void;
 
   setCurrentChannel: (ch: string) => void;
   addChannel: (ch: Channel) => void;
@@ -51,6 +60,8 @@ export const ChatContext = createContext<ChatContextType | undefined>(undefined)
 
 const STORAGE_KEY = 'mch:state:v1';
 const AGENT_TOOLS_KEY = 'mch:agent-tools';
+const ACTIVE_HUB_AGENT_KEY = 'mch:active-agent';
+export const agentChannel = (id: string) => `agent:${id}`;
 const MAX_PERSIST_MESSAGES = 100;
 
 const DEFAULT_PROVIDER_CONFIG: Record<ProviderName, ProviderConfig> = {
@@ -341,6 +352,12 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const [reports, setReports] = useState<string[]>(persisted.reports ?? []);
   const [notifications] = useState<{ id: string; text: string }[]>([]);
   const [activeAgentIndex, setActiveAgentIndex] = useState<number | null>(null);
+  const [hubAgents, setHubAgents] = useState<HubAgent[]>([]);
+  const [hubRoot, setHubRoot] = useState('');
+  const [hubError, setHubError] = useState<string | null>(null);
+  const [activeHubAgentId, setActiveHubAgentId] = useState<string | null>(() => {
+    try { return localStorage.getItem(ACTIVE_HUB_AGENT_KEY); } catch { return null; }
+  });
   const [externalAgentURL, setExternalAgentURL] = useState('http://127.0.0.1:3000');
   const [pairingCode, setPairingCode] = useState('');
   const [thinkingLevel, setThinkingLevel] = useState<'LOW' | 'HIGH'>('HIGH');
@@ -438,6 +455,68 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   // Resposta do agente local (/api/agent/chat e /api/agent/confirm)
+  // ── Agentes do hub (MultChatHub/agentes) ──────────────────────────────────
+  const refreshHubAgents = useCallback(async () => {
+    try {
+      const data = await hubApi.listAgents();
+      setHubAgents(data.agents);
+      setHubRoot(data.root);
+      setHubError(null);
+    } catch (err) {
+      setHubError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  const replaceHubAgent = useCallback((agent: HubAgent) => {
+    setHubAgents((prev) => (prev.some((a) => a.id === agent.id) ? prev.map((a) => (a.id === agent.id ? agent : a)) : [...prev, agent]));
+  }, []);
+
+  const selectHubAgent = useCallback((id: string | null) => {
+    setActiveHubAgentId(id);
+    try {
+      if (id) localStorage.setItem(ACTIVE_HUB_AGENT_KEY, id);
+      else localStorage.removeItem(ACTIVE_HUB_AGENT_KEY);
+    } catch { /* localStorage indisponível */ }
+    if (!id) { setCurrentChannel('Geral'); return; }
+    // Cada agente tem o próprio canal de conversa.
+    const name = agentChannel(id);
+    setChannels((prev) => (prev.some((c) => c.name === name) ? prev : [...prev, { name, members: ['User', id], isPrivate: false }]));
+    setCurrentChannel(name);
+    setActiveAgentIndex(null);
+  }, []);
+
+  useEffect(() => { void refreshHubAgents(); }, [refreshHubAgents]);
+
+  // Reabre o canal do último agente usado.
+  useEffect(() => {
+    if (activeHubAgentId && hubAgents.some((a) => a.id === activeHubAgentId)) {
+      const name = agentChannel(activeHubAgentId);
+      setChannels((prev) => (prev.some((c) => c.name === name) ? prev : [...prev, { name, members: ['User', activeHubAgentId], isPrivate: false }]));
+      setCurrentChannel((cur) => (cur === 'Geral' ? name : cur));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hubAgents.length]);
+
+  // Migração: chaves antigas que estavam no navegador (localStorage) vão para o
+  // cofre do Windows e somem daqui. Só apaga depois que o cofre confirmou.
+  useEffect(() => {
+    const pending = (Object.keys(providerConfig) as ProviderName[]).filter((p) => providerConfig[p]?.apiKey);
+    if (!pending.length) return;
+    void (async () => {
+      for (const p of pending) {
+        const key = providerConfig[p].apiKey;
+        try {
+          await hubApi.setKey(p, key);
+          updateProviderConfig(p, { apiKey: '' });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : '';
+          if (/não usa chave/i.test(msg)) updateProviderConfig(p, { apiKey: '' });
+        }
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const applyAgentResponse = async (response: globalThis.Response, senderName: string, channel: string) => {
     const data = await response.json().catch(() => ({})) as {
       status?: 'done' | 'needs_confirmation';
@@ -560,14 +639,18 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     addMessage({ id: newMsgId(), channel: currentChannel, sender: 'User', text: input });
 
     // Nada pago sem o seu clique: modelo :cloud do Ollama ou provedor de API.
+    const hubAgent = activeHubAgentId && currentChannel === agentChannel(activeHubAgentId)
+      ? hubAgents.find((a) => a.id === activeHubAgentId) ?? null
+      : null;
     const preAgent = activeAgentIndex !== null ? agents[activeAgentIndex] : null;
-    const viaGateway = preAgent?.provider === 'NullClaw Gateway' || preAgent?.provider === 'Webhook Externo';
-    const paidModel = providerConfig[activeProvider]?.model ?? '';
-    const confirmPaid = !viaGateway && isPaidProviderModel(activeProvider, paidModel);
+    const viaGateway = !hubAgent && (preAgent?.provider === 'NullClaw Gateway' || preAgent?.provider === 'Webhook Externo');
+    const paidProvider = hubAgent ? hubAgent.provider : activeProvider;
+    const paidModel = hubAgent ? hubAgent.model : providerConfig[activeProvider]?.model ?? '';
+    const confirmPaid = !viaGateway && isPaidProviderModel(paidProvider, paidModel);
     if (confirmPaid) {
       const ok = await confirm({
         title: 'Usar modelo pago?',
-        message: `${activeProvider === 'ollama' ? `O modelo ${paidModel} roda na nuvem do Ollama` : `O provedor ${activeProvider}`} pode cobrar por uso. Enviar esta mensagem mesmo assim?`,
+        message: `${paidProvider === 'ollama' ? `O modelo ${paidModel} roda na nuvem do Ollama` : `O provedor ${paidProvider}`} pode cobrar por uso. Enviar esta mensagem mesmo assim?`,
         confirmLabel: 'Enviar (pago)',
         variant: 'danger',
       });
@@ -584,7 +667,32 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       let senderName = 'Orquestrador Hub';
       const activeAgent = activeAgentIndex !== null ? agents[activeAgentIndex] : null;
 
-      if (activeAgent?.provider === 'NullClaw Gateway') {
+      if (hubAgent) {
+        // Conversa com um agente salvo: o servidor aplica modelo, prompt, skills
+        // e as ferramentas/MCP liberadas para ele (com confirmação fora da leitura).
+        senderName = `${hubAgent.avatar} ${hubAgent.name}`;
+        const channelHistory = messagesRef.current
+          .filter((m) => m.channel === currentChannel && m.sender !== 'Sistema')
+          .slice(-20)
+          .map((m) => ({ role: m.sender === 'User' ? 'user' : 'assistant', content: m.text }));
+        if (hubAgent.provider === 'ollama') {
+          const response = await fetch('/api/agent/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getBackendAuthHeaders() },
+            body: JSON.stringify({ input, history: channelHistory, agentId: hubAgent.id, confirmPaid }),
+          });
+          await applyAgentResponse(response, senderName, currentChannel);
+        } else {
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getBackendAuthHeaders() },
+            body: JSON.stringify({ input, history: channelHistory, provider: hubAgent.provider, model: hubAgent.model, confirmPaid }),
+          });
+          const data = await response.json().catch(() => ({})) as { text?: string; error?: string };
+          addMessage({ id: newMsgId(), channel: currentChannel, sender: senderName, text: response.ok ? (data.text || 'Sem resposta.') : (data.error ?? `Erro ${response.status}`) });
+        }
+
+      } else if (activeAgent?.provider === 'NullClaw Gateway') {
         senderName = activeAgent.name;
         if (!activeAgent.gatewayId) {
           responseText = 'Este é o modelo do agente NullClaw. Conecte um gateway em "Gateway Externo" (URL + código de pareamento) e selecione o agente conectado.';
@@ -727,7 +835,6 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
             history: channelHistory,
             provider: activeProvider,
             model: cfg.model,
-            apiKey: cfg.apiKey,
             baseUrl: cfg.baseUrl,
             confirmPaid,
           }),
@@ -876,6 +983,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     <ChatContext.Provider value={{
       messages, channels, currentChannel, agents, tasks, dataCache, reports, notifications, activeAgentIndex,
       externalAgentURL, pairingCode, thinkingLevel, isLoading, streamingId, activeProvider, providerConfig, agentToolsEnabled,
+      hubAgents, hubRoot, hubError, activeHubAgentId, selectHubAgent, refreshHubAgents, replaceHubAgent,
       setCurrentChannel,
       addChannel: (ch) => setChannels((prev) => [...prev, ch]),
       addMessage,
@@ -883,7 +991,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       sendMessage,
       registerAgent: (ag) => setAgents((prev) => [...prev, ag]),
       updateAgent: (i, ag) => setAgents((prev) => { const next = [...prev]; next[i] = ag; return next; }),
-      setActiveAgentIndex,
+      setActiveAgentIndex: (i) => { setActiveAgentIndex(i); if (i !== null) setActiveHubAgentId(null); },
       setThinkingLevel,
       setActiveProvider,
       updateProviderConfig,

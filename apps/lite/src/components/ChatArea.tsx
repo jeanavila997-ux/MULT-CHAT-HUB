@@ -5,6 +5,7 @@ import { ChatContext } from '../context/ChatContext';
 import { Button } from './ui/Button';
 import { IconButton } from './ui/IconButton';
 import { ProviderName } from '../types';
+import type { ReactNode } from 'react';
 
 // Charts puxam recharts (~400KB minified). Lazy load: so baixa quando
 // uma mensagem com .analysis e renderizada.
@@ -20,7 +21,7 @@ const QUICK_PROVIDERS: { id: ProviderName; label: string }[] = [
   { id: 'cloudflare', label: 'Cloudflare (nuvem)' },
 ];
 
-export default function ChatArea() {
+export default function ChatArea({ header }: { header?: ReactNode }) {
   const ctx = useContext(ChatContext);
   const [input, setInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -58,6 +59,7 @@ export default function ChatArea() {
 
   return (
     <section className="flex-1 bg-white dark:bg-zinc-950 flex flex-col h-full overflow-hidden" aria-label="Área de chat">
+      {header ?? (
       <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 flex items-center justify-between gap-3 shadow-sm">
         <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 truncate">
           # <span className="font-mono">{currentChannel}</span>
@@ -96,6 +98,7 @@ export default function ChatArea() {
           </Button>
         </div>
       </div>
+      )}
 
       <div className="flex-1 px-4 sm:px-6 py-4 overflow-y-auto space-y-5" role="log" aria-live="polite">
         {channelMessages.length === 0 ? (

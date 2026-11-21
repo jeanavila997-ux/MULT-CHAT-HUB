@@ -15,8 +15,10 @@ type GetHub = () => Promise<Hub>;
 
 function errMsg(err: unknown) { return err instanceof Error ? err.message : String(err); }
 
+/** launcher.js do Mestre (MESTRE_HOME\\v10\\launcher.js). Rodado com node, sem shell. */
 export function defaultMestreLauncher(env: NodeJS.ProcessEnv): string {
-  return env.MESTRE_LAUNCHER_PATH?.trim() || 'C:\\Users\\Jean\\Projetos\\ferramentas\\Mestre-do-PC-V10\\Iniciar-Mestre.bat';
+  const home = env.MESTRE_HOME?.trim() || 'C:\\Users\\Jean\\Projetos\\ferramentas\\Mestre-do-PC-V10';
+  return path.join(home, 'v10', 'launcher.js');
 }
 
 export function buildHubRouter(getHub: GetHub): Router {
@@ -49,6 +51,15 @@ export function buildHubRouter(getHub: GetHub): Router {
   }));
   r.post('/agents/:id/duplicate', wrap((hub, req, res) => res.status(201).json({ agent: hub.registry.duplicate(String(req.params.id)) })));
   r.get('/agents/:id/export', wrap((hub, req, res) => res.json(hub.registry.exportAgent(String(req.params.id)))));
+  r.get('/agents/:id/prompt', wrap((hub, req, res) => {
+    const id = String(req.params.id);
+    const a = hub.registry.get(id);
+    if (!a) return res.status(404).json({ error: 'Agente não encontrado.' });
+    const security = hub.registry.securityInstructions(id);
+    return res.json({ systemPrompt: a.systemPrompt, default: hub.registry.defaultPrompt(id), security: { exists: !!security, chars: security.length }, history: hub.registry.history(id) });
+  }));
+  r.post('/agents/:id/prompt/restore-default', wrap((hub, req, res) => res.json({ agent: hub.registry.restoreDefaultPrompt(String(req.params.id)) })));
+  r.post('/agents/:id/history/:file/restore', wrap((hub, req, res) => res.json({ agent: hub.registry.restoreVersion(String(req.params.id), String(req.params.file)) })));
   r.get('/agents-trash', wrap((hub, _req, res) => res.json({ trash: hub.registry.listTrash() })));
   r.post('/agents-trash/:trashId/restore', wrap((hub, req, res) => res.json({ agent: hub.registry.restore(String(req.params.trashId)) })));
 
@@ -120,9 +131,9 @@ export function buildHubRouter(getHub: GetHub): Router {
   r.post('/mestre/start', wrap((hub, req, res) => {
     if (req.body?.confirm !== true) return res.status(400).json({ error: 'Confirme para iniciar o Mestre do PC (confirm=true).' });
     const launcher = defaultMestreLauncher(hub.env);
-    if (!/\.bat$/i.test(launcher) || /["&|<>^%]/.test(launcher) || !fs.existsSync(launcher)) return res.status(400).json({ error: 'Iniciar-Mestre.bat não encontrado (defina MESTRE_LAUNCHER_PATH).' });
-    // .bat precisa do cmd; o caminho é fixo/validado e não vem do navegador.
-    const child = spawn('cmd.exe', ['/d', '/c', launcher], { cwd: path.dirname(launcher), detached: true, stdio: 'ignore', windowsHide: true });
+    if (path.basename(launcher) !== 'launcher.js' || !fs.existsSync(launcher)) return res.status(400).json({ error: 'launcher.js do Mestre não encontrado (defina MESTRE_HOME).' });
+    // node launcher.js direto (sem cmd/shell); caminho vem do servidor, não do navegador.
+    const child = spawn(process.execPath, [launcher], { cwd: path.dirname(launcher), detached: true, stdio: 'ignore', windowsHide: true, shell: false });
     child.unref();
     hub.mcp.invalidate('mestre');
     return res.json({ ok: true, started: true });

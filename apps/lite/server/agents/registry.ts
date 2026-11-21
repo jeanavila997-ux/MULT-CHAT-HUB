@@ -9,8 +9,10 @@ import { AGENT_SUBDIRS, AgentInput, AgentV2, DEFAULT_AGENT_SEEDS, slugify, valid
 
 const HISTORY_LIMIT = 20;
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,60}$/;
+const HIST_RE = /^\d{8}T\d{6}Z?-v\d+\.json$/;
 const TRASH_RE = /^\d{8}T\d{6}Z?-[a-z0-9][a-z0-9-]{0,60}$/;
 
+export interface HistoryEntry { file: string; version: number; savedAt: string; systemPrompt: string }
 export interface TrashEntry { trashId: string; id: string; name: string; deletedAt: string }
 export interface AgentExport { format: 'mch-agent@1'; exportedAt: string; agent: AgentV2 }
 
@@ -104,6 +106,45 @@ export class AgentRegistry {
     const next: AgentV2 = { ...merged, id, builtin: current.builtin, createdAt: current.createdAt, version: current.version + 1, updatedAt: this.now().toISOString() };
     writeJsonAtomic(this.fileOf(id), next);
     return next;
+  }
+
+  /** Versões anteriores (mais recente primeiro). */
+  history(id: string): HistoryEntry[] {
+    if (!this.get(id)) throw new Error(`Agente não encontrado: ${id}`);
+    const dir = path.join(this.dirOf(id), 'historico');
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir).filter((f) => HIST_RE.test(f)).sort().reverse()
+      .map((file) => {
+        const a = readJson<AgentV2 | null>(path.join(dir, file), null);
+        return a ? { file, version: a.version, savedAt: a.updatedAt, systemPrompt: a.systemPrompt } : null;
+      })
+      .filter((e): e is HistoryEntry => !!e);
+  }
+
+  /** Desfazer: volta o system prompt de uma versão anterior (a atual vai para o histórico). */
+  restoreVersion(id: string, file: string): AgentV2 {
+    if (!HIST_RE.test(file)) throw new Error('Versão inválida.');
+    const old = readJson<AgentV2 | null>(safeJoin(this.dirOf(id), 'historico', file), null);
+    if (!old) throw new Error('Versão não encontrada.');
+    return this.update(id, { systemPrompt: old.systemPrompt });
+  }
+
+  defaultPrompt(id: string): string | null {
+    const a = this.get(id);
+    if (!a?.builtin) return null;
+    return DEFAULT_AGENT_SEEDS.find((s) => s.id === id)?.systemPrompt ?? null;
+  }
+
+  restoreDefaultPrompt(id: string): AgentV2 {
+    const p = this.defaultPrompt(id);
+    if (p === null) throw new Error('Este agente não tem prompt padrão (só os agentes padrão têm).');
+    return this.update(id, { systemPrompt: p });
+  }
+
+  /** seguranca/instrucoes.md: só leitura aqui; edição com senha chega na fase 5. */
+  securityInstructions(id: string): string {
+    try { return fs.readFileSync(path.join(this.dirOf(id), 'seguranca', 'instrucoes.md'), 'utf8').slice(0, 20_000).trim(); }
+    catch { return ''; }
   }
 
   /** Copia ficha e skills próprias. Não copia memória, segurança nem histórico. */

@@ -1,9 +1,29 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 
 let backendProcess;
+
+// Lê APP_ACTIVATION_SECRET do .env.local (dev: apps/lite; empacotado: userData).
+function readActivationSecret() {
+  if (process.env.APP_ACTIVATION_SECRET) return process.env.APP_ACTIVATION_SECRET.trim();
+  const candidates = [path.join(__dirname, '..', '.env.local'), path.join(app.getPath('userData'), '.env.local')];
+  for (const file of candidates) {
+    try {
+      const line = fs.readFileSync(file, 'utf8').split(/\r?\n/).find((l) => /^\s*APP_ACTIVATION_SECRET\s*=/.test(l));
+      if (line) return line.slice(line.indexOf('=') + 1).trim().replace(/^["']|["']$/g, '');
+    } catch { /* arquivo não existe */ }
+  }
+  return '';
+}
+
+// Só a janela do próprio app (localhost:3001 em dev ou file:// empacotado) recebe o segredo.
+ipcMain.on('mch:activation-secret', (event) => {
+  const url = event.senderFrame?.url || '';
+  const allowed = url.startsWith('http://localhost:3001') || url.startsWith('http://127.0.0.1:3001') || url.startsWith('file://');
+  event.returnValue = allowed ? readActivationSecret() : '';
+});
 let mainWindow;
 
 function getServerPath() {

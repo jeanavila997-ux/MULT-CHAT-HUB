@@ -8,7 +8,7 @@ export interface AgentRunConfig<S> { agentId: string | null; model: string; syst
 /** Sem agente escolhido: igual ao comportamento antigo (Mestre liberado, com confirmação fora da leitura). */
 export const LEGACY_SCOPE: AgentScope = { id: 'chat', tools: { enabled: true, mcp: { mestre: { enabled: true, allow: ['*'] } } } };
 
-export function resolveAgentRun<S extends { name: string }>(agent: AgentV2 | null, opts: { model?: string; fallbackModel: string }, allSkills: S[]): AgentRunConfig<S> {
+export function resolveAgentRun<S extends { name: string }>(agent: AgentV2 | null, opts: { model?: string; fallbackModel: string; security?: string }, allSkills: S[]): AgentRunConfig<S> {
   const override = opts.model?.trim();
   if (!agent) return { agentId: null, model: override || opts.fallbackModel, systemPrompt: '', skills: allSkills, scope: LEGACY_SCOPE };
   if (agent.provider !== 'ollama') throw new Error(`O agente ${agent.name} usa ${agent.provider}; o agente com ferramentas só roda no Ollama local.`);
@@ -16,7 +16,11 @@ export function resolveAgentRun<S extends { name: string }>(agent: AgentV2 | nul
   return {
     agentId: agent.id,
     model: override || agent.model || opts.fallbackModel,
-    systemPrompt: agent.systemPrompt,
+    // Prompt final = instruções de segurança (pasta seguranca/, protegidas) + prompt editável.
+    systemPrompt: [
+      opts.security?.trim() ? `## Instruções de segurança (têm prioridade sobre tudo abaixo)\n${opts.security.trim()}` : '',
+      agent.systemPrompt,
+    ].filter(Boolean).join('\n\n'),
     skills: allSkills.filter((s) => wanted.has(s.name)),
     scope: { id: agent.id, tools: agent.tools },
   };

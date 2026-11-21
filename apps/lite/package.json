@@ -15,14 +15,15 @@
     "clean": "rm -rf dist server-dist release",
     "test:engine": "tsx src/lib/analyticalEngine.test.ts",
     "test:controller": "tsx server/controllers/toolController.test.ts",
-    "test": "pnpm run test:engine && pnpm run test:controller && pnpm run test:api-auth && pnpm run test:agent && pnpm run test:hub",
+    "test": "pnpm run test:engine && pnpm run test:controller && pnpm run test:api-auth && pnpm run test:front-auth && pnpm run test:agent && pnpm run test:hub",
     "lint": "tsc --noEmit",
     "server": "tsx server/index.ts",
     "dev:all": "concurrently \"pnpm run dev\" \"pnpm run server\"",
     "electron:dev": "cross-env NODE_ENV=development concurrently \"pnpm run dev:all\" \"wait-on tcp:3001 && electron .\"",
     "electron:build": "pnpm run build:electron && electron-builder",
     "test:api-auth": "tsx server/routes/api.test.ts",
-    "test:hub": "tsx server/storage/paths.test.ts && tsx server/agents/registry.test.ts && tsx server/secrets/secretStore.test.ts && tsx server/mcp/policy.test.ts && tsx server/mcp/manager.test.ts && tsx server/agent/agentRun.test.ts && tsx server/routes/hubRoutes.test.ts",
+    "test:front-auth": "tsx src/lib/backendAuth.test.ts",
+    "test:hub": "tsx server/storage/paths.test.ts && tsx server/agents/registry.test.ts && tsx server/agents/prompt.test.ts && tsx server/secrets/secretStore.test.ts && tsx server/mcp/policy.test.ts && tsx server/mcp/manager.test.ts && tsx server/agent/agentRun.test.ts && tsx server/routes/hubRoutes.test.ts",
     "test:agent": "tsx server/agent/toolLoop.test.ts && tsx server/agent/skills.test.ts && tsx server/agent/mcpClient.test.ts && tsx server/providers/catalog.test.ts && tsx server/providers/paidGuard.test.ts && tsx server/routines/schedule.test.ts && tsx server/routines/routines.test.ts && tsx server/controllers/gatewayController.test.ts"
   },
   "build": {

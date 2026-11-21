@@ -416,40 +416,12 @@ export default function AgentConfig() {
           {currentProvider.description}
         </div>
 
-        {/* Campo de chave API (se necessário) */}
+        {/* Chaves ficam no cofre do Windows (seção API), nunca no navegador. */}
         {currentProvider.needsKey && (
-          <div className="space-y-2 bg-white dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700 rounded-lg p-3">
-            <label htmlFor="api-key" className="flex items-center gap-1.5 text-[10px] font-bold text-stone-600 dark:text-stone-400 uppercase tracking-wide">
-              <Key className="w-3 h-3" />
-              Chave {currentProvider.label}
-              {currentCfg.apiKey && (
-                <span className="ml-auto text-emerald-600 dark:text-emerald-400 normal-case font-medium">● conectado</span>
-              )}
-            </label>
-            <div className="relative">
-              <input
-                id="api-key"
-                type={showKey ? 'text' : 'password'}
-                value={currentCfg.apiKey}
-                onChange={(e) => updateProviderConfig(activeProvider, { apiKey: e.target.value })}
-                placeholder={currentCfg.apiKey ? '••••••••••••' : `Cole sua chave ${currentProvider.label}…`}
-                className="w-full h-9 pl-3 pr-9 border border-stone-300 dark:border-zinc-600 rounded-md text-sm bg-stone-50 dark:bg-zinc-900 text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey((s) => !s)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
-                aria-label={showKey ? 'Ocultar chave' : 'Mostrar chave'}
-              >
-                {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <p className="text-[10px] text-stone-500 dark:text-stone-500 leading-relaxed">
-              Vazio = usa a chave do <code className="font-mono">.env.local</code> no servidor.
-            </p>
-          </div>
+          <p className="flex items-center gap-1.5 text-xs bg-white dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700 rounded-lg p-3 text-stone-600 dark:text-stone-300">
+            <Key className="w-3 h-3 shrink-0" />
+            A chave do {currentProvider.label} fica no cofre do Windows. Configure em 🔑 API, na barra lateral.
+          </p>
         )}
 
         <div className="mt-2 px-1 space-y-1">

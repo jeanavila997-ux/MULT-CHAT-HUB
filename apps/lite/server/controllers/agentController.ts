@@ -117,7 +117,7 @@ export const handleAgentChat = async (req: Request, res: Response) => {
   if (typeof agentId === 'string' && agentId && !agent) return res.status(404).json({ error: `Agente não encontrado: ${agentId}` });
   let run;
   try {
-    run = resolveAgentRun(agent, { model: typeof rawModel === 'string' ? rawModel : undefined, fallbackModel: ollamaModel() }, listSkills(skillDirs()));
+    run = resolveAgentRun(agent, { model: typeof rawModel === 'string' ? rawModel : undefined, fallbackModel: ollamaModel(), security: agent && hub ? hub.registry.securityInstructions(agent.id) : '' }, listSkills(skillDirs()));
   } catch (err) {
     return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }

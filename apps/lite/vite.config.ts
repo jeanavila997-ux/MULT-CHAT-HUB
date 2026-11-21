@@ -23,11 +23,16 @@ export default defineConfig(({ mode }) => {
       // HMR desabilitado via DISABLE_HMR=true (AI Studio).
       // Watch ficou desligado no projeto original para reduzir flicker.
       hmr: process.env.DISABLE_HMR !== 'true',
+      // O proxy (lado do servidor) injeta o segredo de ativação: ele não vai
+      // para o bundle nem para o navegador. Origens externas continuam
+      // barradas pelo CORS do backend.
       proxy: {
         '/api': {
           target: apiTarget,
           changeOrigin: true,
+          headers: env.APP_ACTIVATION_SECRET ? { 'x-mch-activation-secret': env.APP_ACTIVATION_SECRET.trim() } : {},
         },
+        '/health': { target: apiTarget, changeOrigin: true },
       },
     },
     build: {

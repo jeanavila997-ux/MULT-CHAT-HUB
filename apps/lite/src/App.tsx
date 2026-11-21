@@ -4,28 +4,23 @@
  */
 
 import { useState, useEffect } from 'react';
-import { BookOpen, Clock, Menu, Moon, Sun, Users } from 'lucide-react';
+import { BookOpen, Clock, Menu, Moon, Sun } from 'lucide-react';
 import { ChatProvider } from './context/ChatContext';
-import Sidebar from './components/Sidebar';
-import ChatArea from './components/ChatArea';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import AgentConfig from './components/AgentConfig';
+import HubLayout from './components/hub/HubLayout';
 import ManualModal from './components/ManualModal';
 import RoutinesModal from './components/RoutinesModal';
 import { Button } from './components/ui/Button';
 import { IconButton } from './components/ui/IconButton';
-import { Drawer } from './components/ui/Drawer';
 import { ConfirmDialogProvider } from './components/ui/ConfirmDialog';
 import { useDisclosure } from './hooks/useDisclosure';
-import { useIsMobile, useIsTablet } from './hooks/useMediaQuery';
+import { useIsMobile } from './hooks/useMediaQuery';
 
 export default function App() {
   const manual = useDisclosure();
   const routinesUi = useDisclosure();
   const sidebarDrawer = useDisclosure();
-  const agentDrawer = useDisclosure();
   const isMobile = useIsMobile();
-  const isTablet = useIsTablet();
 
   const [isDark, setIsDark] = useState(() => {
     try { return localStorage.getItem('mch:theme') === 'dark'; } catch { return false; }
@@ -46,7 +41,7 @@ export default function App() {
             <div className="flex items-center gap-2 min-w-0">
               {isMobile && (
                 <IconButton
-                  aria-label="Abrir menu de canais"
+                  aria-label="Abrir agentes"
                   icon={<Menu className="w-5 h-5" />}
                   onClick={sidebarDrawer.open}
                 />
@@ -103,53 +98,10 @@ export default function App() {
                 onClick={manual.open}
                 className="sm:hidden"
               />
-              {isTablet && (
-                <IconButton
-                  aria-label="Agentes e gateway"
-                  icon={<Users className="w-5 h-5" />}
-                  onClick={agentDrawer.open}
-                />
-              )}
             </div>
           </header>
 
-          <main className="flex-1 flex overflow-hidden">
-            {/* Sidebar: aside fixo em >=md, drawer em <md */}
-            <aside className="hidden md:flex bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 w-[280px] lg:w-[300px] overflow-y-auto flex-col">
-              <Sidebar />
-            </aside>
-
-            <Drawer
-              isOpen={isMobile && sidebarDrawer.isOpen}
-              onClose={sidebarDrawer.close}
-              side="left"
-              title="Canais & Estado"
-              width="280px"
-            >
-              <div className="p-4">
-                <Sidebar />
-              </div>
-            </Drawer>
-
-            <ChatArea />
-
-            {/* AgentConfig: aside fixo em >=lg, drawer flutuante em <lg */}
-            <aside className="hidden lg:flex bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-800 w-[340px] xl:w-[360px] overflow-y-auto flex-col">
-              <AgentConfig />
-            </aside>
-
-            <Drawer
-              isOpen={isTablet && agentDrawer.isOpen}
-              onClose={agentDrawer.close}
-              side="right"
-              title="Agentes & Gateway"
-              width="340px"
-            >
-              <div className="p-4">
-                <AgentConfig />
-              </div>
-            </Drawer>
-          </main>
+          <HubLayout sidebarOpen={sidebarDrawer.isOpen} onCloseSidebar={sidebarDrawer.close} />
 
           <ManualModal isOpen={manual.isOpen} onClose={manual.close} />
           <RoutinesModal isOpen={routinesUi.isOpen} onClose={routinesUi.close} />
