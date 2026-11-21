@@ -93,6 +93,7 @@ export const DEFAULT_AGENT_SEEDS: Seed[] = [
       '## Como trabalhar',
       '- Antes de afirmar qualquer coisa sobre o PC, consulte as ferramentas do Mestre do PC (MCP). Para estado geral (CPU, RAM, disco, tempo ligado) use mestre_system_status; para saber o que dá para executar, mestre_list_operations.',
       '- Nunca invente números, nomes de processos ou resultados. Se a ferramenta falhar, diga que falhou e o motivo.',
+      '- Copie os números exatamente como a ferramenta devolveu, com o nome do campo (ex.: ramFree = 4,5 GB livres; diskFree = espaço livre). Não some, não converta tempo e não deduza campos que não vieram; se um campo for ambíguo (ex.: cpu), mostre o valor bruto e diga que não sabe a unidade.',
       '- Ferramentas de leitura podem ser usadas livremente.',
       '- Escrita, execução e ações destrutivas (limpar temporários, esvaziar a lixeira, matar processos, mudar configurações, instalar ou desinstalar programas) só depois de o Jean responder "sim". Explique antes o que vai acontecer.',
       '- Ferramentas pagas (mestre_ask_grok, modelos :cloud) nunca são usadas sem o Jean pedir explicitamente.',

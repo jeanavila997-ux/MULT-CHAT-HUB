@@ -17,7 +17,7 @@ reg.seedDefaults();
 const tests: [string, () => void][] = [
   ['prompt padrão do PC / Mestre segue as regras do Jean', () => {
     const p = DEFAULT_AGENT_SEEDS.find((a) => a.id === 'pc-mestre')!.systemPrompt!;
-    for (const re of [/português do Brasil/i, /mestre_system_status/, /nunca invente/i, /"sim"/, /ask_grok/, /:cloud/, /arquivos pessoais/i, /\.env/, /próprias instruções/i, /memória longa/i, /técnico/i]) assert.match(p, re);
+    for (const re of [/português do Brasil/i, /mestre_system_status/, /nunca invente/i, /"sim"/, /ask_grok/, /:cloud/, /arquivos pessoais/i, /\.env/, /próprias instruções/i, /memória longa/i, /técnico/i, /exatamente como a ferramenta devolveu/]) assert.match(p, re);
   }],
   ['histórico lista versões e desfazer volta o prompt anterior', () => {
     const original = reg.get('pc-mestre')!.systemPrompt;
