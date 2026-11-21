@@ -234,7 +234,7 @@ export default function AgentProfile({ agentId, status, onClose }: Props) {
 
       <footer className="p-3 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
         <div className="flex gap-2">
-          <Button size="sm" icon={<Save className="w-4 h-4" />} onClick={save} disabled={!dirty || busy} isLoading={busy} fullWidth>Salvar</Button>
+          {tab === 'prompt' ? null : <Button size="sm" icon={<Save className="w-4 h-4" />} onClick={save} disabled={!dirty || busy} isLoading={busy} fullWidth>Salvar</Button>}
           <Button size="sm" variant="secondary" icon={<Copy className="w-4 h-4" />} onClick={duplicate}>Duplicar</Button>
           <Button size="sm" variant="secondary" icon={<Download className="w-4 h-4" />} onClick={exportJson}>Exportar</Button>
         </div>
