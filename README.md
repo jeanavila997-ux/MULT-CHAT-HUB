@@ -15,7 +15,7 @@ Frontend React 19 + Vite · Backend Express · Desktop via Electron · LLM local
 
 Plataforma onde **múltiplas IAs colaboram como uma equipe** num único ambiente self-contained, sem chave de API e sem nuvem obrigatória. Inclui:
 
-- Chat com IAs locais (Ollama / `fazendaavila2026/avila`) e gateways externos (NullClaw).
+- Chat com IAs locais (Ollama / `jeanavila997/agente-model-file`) e gateways externos (NullClaw).
 - **Quantum Analytical Engine** em TypeScript puro — 5 análises quantitativas executadas localmente:
   - `analyze_descriptive` — estatísticas (count, mean, std, min, p25/p50/p75, max).
   - `analyze_predictive` — regressão linear multivariada (`ml-regression-multivariate-linear`).
@@ -49,11 +49,11 @@ Abra `http://localhost:3001`.
 
 ```bash
 ollama serve
-ollama pull fazendaavila2026/avila
+ollama pull jeanavila997/agente-model-file
 # no apps/lite/.env.local
 APP_ACTIVATION_SECRET="sua-chave"
 OLLAMA_HOST="http://localhost:11434"
-OLLAMA_MODEL="fazendaavila2026/avila:latest"
+OLLAMA_MODEL="jeanavila997/agente-model-file:latest"
 LLM_PROVIDER="ollama"
 ```
 
@@ -92,7 +92,7 @@ npm run electron:build
 
 Instalador gerado em `release/MULT CHAT HUB Setup <versão>.exe`. Ícone, asarUnpack e logging em `%APPDATA%/MULT CHAT HUB/logs/` já configurados.
 
-> O app instalado precisa do Ollama rodando em `localhost:11434` com o modelo `fazendaavila2026/avila` baixado.
+> O app instalado precisa do Ollama rodando em `localhost:11434` com o modelo `jeanavila997/agente-model-file` baixado.
 
 Alternativamente, dispare o workflow [`release.yml`](.github/workflows/release.yml) via push de tag `v*` ou `workflow_dispatch` para builds automatizados em `windows-latest`.
 
@@ -126,7 +126,7 @@ Para chat completo no Vercel: hospede o backend Express separadamente (Fly.io, R
 | Variável | Default | Descrição |
 |---|---|---|
 | `OLLAMA_HOST` | `http://localhost:11434` | URL do servidor Ollama |
-| `OLLAMA_MODEL` | `fazendaavila2026/avila:latest` | Modelo padrão do `/api/chat` |
+| `OLLAMA_MODEL` | `jeanavila997/agente-model-file:latest` | Modelo padrão do `/api/chat` |
 | `VITE_GITHUB_TOKEN` | (vazio) | Opcional, usado pelas tools `github_list_repos` / `github_create_issue` |
 | `PORT` | `3000` | Porta do backend Express |
 

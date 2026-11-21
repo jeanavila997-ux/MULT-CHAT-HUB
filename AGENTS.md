@@ -51,7 +51,7 @@ packages/@mch/  ← 7 pacotes compartilhados. Muitos ainda stub; provider-adapte
 - Copie `.env.example` → **`apps/lite/.env.local`** (arquivo **git-ignored**).
 - `APP_ACTIVATION_SECRET` é **obrigatória** — o servidor Express não sobe sem ela.
 - `GITHUB_TOKEN` **sem prefixo `VITE_`** — é usado server-side em `toolController.ts`.
-- `OLLAMA_HOST` default: `http://localhost:11434`. Ollama deve estar com `ollama serve` + modelo `fazendaavila2026/avila:latest` baixado.
+- `OLLAMA_HOST` default: `http://localhost:11434`. Ollama deve estar com `ollama serve` + modelo `jeanavila997/agente-model-file:latest` baixado.
 - `VITE_GITHUB_TOKEN` (prefixo `VITE_`) é **diferente** de `GITHUB_TOKEN` — o primeiro expõe no bundle, o segundo não.
 - `SUPABASE_*` só serve para `apps/cloud`. Se estiver trabalhando só no `lite`, pode ignorar.
 

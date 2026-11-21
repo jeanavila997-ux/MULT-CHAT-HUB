@@ -91,7 +91,7 @@ const PROVIDERS: ProviderMeta[] = [
     id: 'ollama',
     label: 'Ollama',
     short: 'Local',
-    description: 'Modelos rodando no seu PC (privacidade total, sem chave).',
+    description: 'Modelos locais rodam no seu PC (grátis, sem chave). Os marcados 💲 são da nuvem do Ollama: usam a assinatura e pedem confirmação.',
     accent: 'bg-stone-100 dark:bg-stone-800 border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-200',
     ring: 'ring-stone-500/40',
     dot: 'bg-stone-500',
@@ -170,8 +170,8 @@ const PROVIDERS: ProviderMeta[] = [
   {
     id: 'opencode',
     label: 'OpenCode',
-    short: 'OpenAI',
-    description: 'OpenCode e endpoints locais/compatíveis com OpenAI.',
+    short: 'CLI',
+    description: 'OpenCode (CLI de código). Usa endpoint compatível com OpenAI; pode cobrar.',
     accent: 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200',
     ring: 'ring-indigo-500/40',
     dot: 'bg-indigo-500',
@@ -285,6 +285,7 @@ export default function AgentConfig() {
     thinkingLevel: 'HIGH',
   });
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaCloud, setOllamaCloud] = useState<string[]>([]);
   const [ollamaDefault, setOllamaDefault] = useState('');
   const isOllama = ctx?.activeProvider === 'ollama';
 
@@ -293,10 +294,11 @@ export default function AgentConfig() {
     if (!isOllama) return;
     let cancelled = false;
     fetch('/api/models/ollama', { headers: getBackendAuthHeaders() })
-      .then((r) => r.json() as Promise<{ default?: string; models?: string[] }>)
+      .then((r) => r.json() as Promise<{ default?: string; models?: string[]; local?: string[]; cloud?: string[] }>)
       .then((data) => {
         if (cancelled) return;
-        setOllamaModels(Array.isArray(data.models) ? data.models : []);
+        setOllamaModels(Array.isArray(data.local) ? data.local : Array.isArray(data.models) ? data.models : []);
+        setOllamaCloud(Array.isArray(data.cloud) ? data.cloud : []);
         setOllamaDefault(typeof data.default === 'string' ? data.default : '');
       })
       .catch(() => { /* Ollama offline: mantém o campo de texto livre */ });
@@ -462,12 +464,21 @@ export default function AgentConfig() {
               className="w-full h-8 px-2 border border-stone-300 dark:border-zinc-600 rounded-md text-xs font-mono bg-stone-50 dark:bg-zinc-900 text-stone-900 dark:text-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
             >
               <option value="">Padrão do servidor{ollamaDefault ? ` (${ollamaDefault})` : ''}</option>
-              {currentCfg.model && !ollamaModels.includes(currentCfg.model) && (
+              {currentCfg.model && !ollamaModels.includes(currentCfg.model) && !ollamaCloud.includes(currentCfg.model) && (
                 <option value={currentCfg.model}>{currentCfg.model} (não instalado)</option>
               )}
-              {ollamaModels.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
+              <optgroup label="Local (grátis)">
+                {ollamaModels.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </optgroup>
+              {ollamaCloud.length > 0 && (
+                <optgroup label="Nuvem Ollama 💲 (pago, pede confirmação)">
+                  {ollamaCloud.map((m) => (
+                    <option key={m} value={m}>💲 {m}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           ) : (
             <input

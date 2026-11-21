@@ -170,7 +170,9 @@ async function getMcpTools(): Promise<{ tools: McpTool[]; error?: string }> {
   if (!/^https?:\/\//i.test(url)) return { tools: [], error: 'MESTRE_MCP_URL inválido' };
   const key = `${url}|${process.env.MESTRE_MCP_TOKEN ? 'token' : ''}`;
   if (!mcpClient || mcpKey !== key) {
-    mcpClient = new McpHttpClient(url, process.env.MESTRE_MCP_TOKEN?.trim() || '');
+    const token = process.env.MESTRE_MCP_TOKEN?.trim() || '';
+    // O Mestre aceita X-Mestre-Mcp-Token ou Bearer; mandamos os dois.
+    mcpClient = new McpHttpClient(url, token, 20_000, token ? { 'X-Mestre-Mcp-Token': token } : {});
     mcpKey = key;
     mcpCache = null;
   }

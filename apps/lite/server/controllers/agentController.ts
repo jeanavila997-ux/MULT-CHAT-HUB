@@ -2,12 +2,14 @@ import { Request, Response } from 'express';
 import { ChatFn, LoopMessage, LoopResult, LoopState, PendingStore, runToolLoop, DEFAULT_MAX_ITERATIONS } from '../agent/toolLoop.js';
 import { buildAgentTools, skillDirs } from '../agent/agentTools.js';
 import { listSkills, SkillMeta } from '../agent/skills.js';
+import { DEFAULT_LOCAL_MODEL } from '../providers/catalog.js';
+import { paidGuardError } from '../providers/paidGuard.js';
 
 // Agente local: Ollama com tool-calling nativo (/api/chat + tools).
 // Só usa o Ollama local — nunca troca sozinho para provedor pago.
 
 const ollamaHost = () => (process.env.OLLAMA_HOST || 'http://127.0.0.1:11434').replace(/\/$/, '');
-export const ollamaModel = () => process.env.OLLAMA_MODEL || 'fazendaavila2026/avila:latest';
+export const ollamaModel = () => process.env.OLLAMA_MODEL || DEFAULT_LOCAL_MODEL;
 export const maxIterations = () => {
   const n = Number(process.env.AGENT_MAX_TOOL_ITERATIONS);
   return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 10) : DEFAULT_MAX_ITERATIONS;
@@ -102,6 +104,8 @@ export const handleAgentChat = async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'input é obrigatório.' });
   }
   const model = typeof rawModel === 'string' && rawModel.trim() ? rawModel.trim() : ollamaModel();
+  const paidError = paidGuardError('ollama', model, req.body?.confirmPaid);
+  if (paidError) return res.status(402).json({ error: paidError, needsPaidConfirmation: true });
   try {
     const { tools } = await buildAgentTools();
     const skills = listSkills(skillDirs());

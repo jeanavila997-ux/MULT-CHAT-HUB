@@ -263,7 +263,7 @@ function softwareRecommendation(): Record<string, unknown> {
       anomaly_detection: 'z-score multivariado',
       api_exposure: 'Express',
       ui: 'React + recharts',
-      llm: 'Ollama local (fazendaavila2026/avila)'
+      llm: 'Ollama local (jeanavila997/agente-model-file)'
     }
   };
 }

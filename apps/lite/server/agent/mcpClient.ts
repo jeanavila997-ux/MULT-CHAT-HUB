@@ -28,6 +28,7 @@ export class McpHttpClient {
     private readonly url: string,
     private readonly token = '',
     private readonly timeoutMs = 20_000,
+    private readonly extraHeaders: Record<string, string> = {},
   ) {}
 
   private headers(): Record<string, string> {
@@ -35,6 +36,7 @@ export class McpHttpClient {
       'Content-Type': 'application/json',
       Accept: 'application/json, text/event-stream',
     };
+    for (const [k, v] of Object.entries(this.extraHeaders)) if (v) h[k] = v;
     if (this.token) h.Authorization = `Bearer ${this.token}`;
     if (this.sessionId) h['Mcp-Session-Id'] = this.sessionId;
     return h;

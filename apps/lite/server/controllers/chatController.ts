@@ -1,10 +1,12 @@
 import { Request, Response } from 'express';
 import { createAdapter, DEFAULT_MODELS, normalizeProviderName, ProviderName } from '../../src/lib/providerAdapters.js';
+import { classifyOllamaModels, DEFAULT_LOCAL_MODEL, hiddenOllamaModels } from '../providers/catalog.js';
+import { paidGuardError } from '../providers/paidGuard.js';
 
 // Lazy getters: dotenv.config() roda depois deste módulo ser importado (hoisting
 // de imports ESM), então process.env precisa ser lido por request.
 const ollamaHost = () => (process.env.OLLAMA_HOST || 'http://127.0.0.1:11434').replace(/\/$/, '');
-const ollamaModel = () => process.env.OLLAMA_MODEL || 'fazendaavila2026/avila:latest';
+const ollamaModel = () => process.env.OLLAMA_MODEL || DEFAULT_LOCAL_MODEL;
 const llmBaseUrl = () => (process.env.LLM_BASE_URL || process.env.OLLAMA_HOST || 'http://127.0.0.1:8080/v1').replace(/\/$/, '');
 const llmProvider = () => (process.env.LLM_PROVIDER || 'ollama').toLowerCase();
 
@@ -189,6 +191,8 @@ export const handleChat = async (req: Request, res: Response) => {
     const provider = resolveProvider(rawProvider);
     const defaultModel = defaultModelFor(provider);
     const model = (typeof modelOverride === 'string' && modelOverride.trim()) ? modelOverride.trim() : defaultModel;
+    const paidError = paidGuardError(provider, model, req.body?.confirmPaid);
+    if (paidError) return res.status(402).json({ error: paidError, needsPaidConfirmation: true });
     const apiKey = (typeof reqApiKey === 'string' && reqApiKey.trim()) ? reqApiKey.trim() : envKeyFor(provider);
     const baseUrl = baseUrlFor(provider);
     if (provider === 'cloudflare' && !baseUrl) {
@@ -276,6 +280,11 @@ export const handleChatStream = async (req: Request, res: Response) => {
 
     if (!input) {
       send({ error: 'Input is required' });
+      return res.end();
+    }
+    const paidError = paidGuardError('ollama', model, req.body?.confirmPaid);
+    if (paidError) {
+      send({ error: paidError, needsPaidConfirmation: true });
       return res.end();
     }
 
@@ -437,10 +446,12 @@ export const handleOllamaModels = async (_req: Request, res: Response) => {
       return res.status(502).json({ default: defaultModel, models: [], error: `Ollama respondeu HTTP ${r.status}` });
     }
     const data = await r.json() as { models?: { name?: string }[] };
-    const models = (data.models ?? [])
+    const names = (data.models ?? [])
       .map((m) => m.name)
       .filter((n): n is string => typeof n === 'string' && n.length > 0);
-    return res.json({ default: defaultModel, models });
+    // local = roda no PC (grátis); cloud = nuvem do Ollama (paga, pede confirmação).
+    const { local, cloud, hidden } = classifyOllamaModels(names, hiddenOllamaModels());
+    return res.json({ default: defaultModel, models: [...local, ...cloud], local, cloud, hidden });
   } catch {
     return res.status(503).json({ default: defaultModel, models: [], error: `Ollama não acessível em ${ollamaHost()}` });
   }

@@ -4,6 +4,7 @@ import { useConfirm } from '../components/ui/ConfirmDialog';
 import { parseCsv, newMsgId } from '../lib/utils';
 import { processCommands } from '../lib/commandProcessor';
 import { getBackendAuthHeaders } from '../lib/backendAuth';
+import { isPaidProviderModel } from '../lib/paid';
 
 interface ChatContextType {
   messages: Message[];
@@ -84,7 +85,7 @@ const DEFAULT_AGENTS: Agent[] = [
   {
     name: 'Orquestrador Hub',
     specialty: 'Coordenação Ollama Local',
-    description: 'IA central do sistema para tarefas gerais e orquestração via modelo local fazendaavila2026/avila.',
+    description: 'IA central do sistema para tarefas gerais e orquestração via modelo local jeanavila997/agente-model-file.',
     permissions: ['admin', 'tools'],
     provider: 'Interno',
     status: 'Ativo',
@@ -557,6 +558,24 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     }
 
     addMessage({ id: newMsgId(), channel: currentChannel, sender: 'User', text: input });
+
+    // Nada pago sem o seu clique: modelo :cloud do Ollama ou provedor de API.
+    const preAgent = activeAgentIndex !== null ? agents[activeAgentIndex] : null;
+    const viaGateway = preAgent?.provider === 'NullClaw Gateway' || preAgent?.provider === 'Webhook Externo';
+    const paidModel = providerConfig[activeProvider]?.model ?? '';
+    const confirmPaid = !viaGateway && isPaidProviderModel(activeProvider, paidModel);
+    if (confirmPaid) {
+      const ok = await confirm({
+        title: 'Usar modelo pago?',
+        message: `${activeProvider === 'ollama' ? `O modelo ${paidModel} roda na nuvem do Ollama` : `O provedor ${activeProvider}`} pode cobrar por uso. Enviar esta mensagem mesmo assim?`,
+        confirmLabel: 'Enviar (pago)',
+        variant: 'danger',
+      });
+      if (!ok) {
+        addMessage({ id: newMsgId(), channel: currentChannel, sender: 'Sistema', text: 'Envio cancelado: o modelo pago não foi confirmado. Escolha um modelo local para usar sem custo.' });
+        return;
+      }
+    }
     setIsLoading(true);
 
     let streamPlaceholderId: string | null = null;
@@ -639,7 +658,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
         const response = await fetch('/api/agent/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...getBackendAuthHeaders() },
-          body: JSON.stringify({ input, history: channelHistory, model: providerConfig.ollama.model }),
+          body: JSON.stringify({ input, history: channelHistory, model: providerConfig.ollama.model, confirmPaid }),
         });
         await applyAgentResponse(response, senderName, currentChannel);
         // responseText fica vazio de propósito: /use_tool (processCommands) não roda
@@ -664,7 +683,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
           const response = await fetch('/api/chat/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...getBackendAuthHeaders() },
-            body: JSON.stringify({ input, thinking: thinkingLevel, history: channelHistory, model: cfg.model, baseUrl: cfg.baseUrl, provider: activeProvider }),
+            body: JSON.stringify({ input, thinking: thinkingLevel, history: channelHistory, model: cfg.model, baseUrl: cfg.baseUrl, provider: activeProvider, confirmPaid }),
           });
 
           if (!response.ok || !response.body) {
@@ -710,6 +729,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
             model: cfg.model,
             apiKey: cfg.apiKey,
             baseUrl: cfg.baseUrl,
+            confirmPaid,
           }),
         });
         if (response.ok) {

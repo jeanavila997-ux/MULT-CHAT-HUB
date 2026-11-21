@@ -102,7 +102,7 @@ export function normalizeProviderName(raw: unknown): ProviderName | null {
 }
 
 export const DEFAULT_MODELS: Record<ProviderName, string> = {
-  ollama:     'fazendaavila2026/avila:latest',
+  ollama:     'jeanavila997/agente-model-file:latest',
   openai:     'gpt-4o-mini',
   anthropic:  'claude-haiku-4-5-20251001',
   gemini:     'gemini-2.0-flash-lite',
