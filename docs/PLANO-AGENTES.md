@@ -1,22 +1,27 @@
 # Plano — Agentes editáveis no MULT-CHAT-HUB lite
 
-> **Status (21/11/2026, 00:15 Rio Branco):** fases 0, 1, 2 e 3 implementadas no branch `feat/rotinas-agentes-20261120` (PR #23, draft). Grupos de agentes em andamento (camada de dados pronta e testada). Veja "Progresso" abaixo.
+> **Status (21/11/2026, 00:15 Rio Branco):** fases 0, 1, 2 e 3 implementadas no branch `feat/rotinas-agentes-20261120` (PR #23, draft). Grupos em andamento. Veja "Progresso da implementação" abaixo.
 
 ## Progresso da implementação
 
-| Fase | Situação | O que já funciona |
+Legenda: ✅ pronto · 🟡 em andamento · ⏳ pendente
+
+| Item | Status | Detalhe |
 |---|---|---|
-| 0. Preparação | ✅ pronta | Modelo padrão corrigido, Local x Nuvem 💲, segredo de ativação fora do bundle (proxy do Vite / preload do Electron), token no `/mcp` do Mestre (PR #72 do Mestre). |
-| 1. Agentes no disco + CRUD + API | ✅ pronta | `C:\Users\Jean\MultChatHub\agentes`, 5 padrões (inclui **PC / Mestre**), criar/editar/duplicar/exportar/importar/excluir com lixeira de 30 dias, editor de prompt com histórico e "restaurar padrão", seção API com Cofre do Windows (`@napi-rs/keyring`), testar provedor, chaves nunca voltam ao front. |
-| 2. MCP + Mestre do PC | ✅ pronta | `McpManager` HTTP + stdio, classificação leitura/escrita/execução/destrutiva/paga, confirmação obrigatória fora da leitura, matriz por agente, log, seção Mestre (status, reconectar, iniciar), **tela de servidores MCP** (adicionar/editar/testar/remover, só 127.0.0.1, sem shell). `system_status` do Mestre em pt-BR rotulado. |
-| 3. Memória | ✅ pronta | Curta: sessões JSONL (200 msgs/dia, apaga após 14 dias). Longa: o agente só **propõe** (`propor_memoria`, recusa segredos); o Jean aprova/edita/rejeita/apaga na aba Memória; só fatos aprovados entram no prompt. Memória compartilhada: pendente. |
-| Grupos de agentes (pedido extra) | 🟡 em andamento | `GroupStore` pronto e testado: CRUD, adicionar/remover, entrar/sair, bloquear/desbloquear, moderador, convites `multchathub://grupo/<id>?convite=<token>` (só hash salvo, validade, uso único, revogar). Falta: rodadas do chat em grupo, rotas, telas e tela de aceite do link. |
-| Extras | ✅ | Markdown seguro no chat (sem HTML cru). |
-| 4–8 | ⏳ não iniciadas | Acessos (pastas/links), senha da pasta segurança, biblioteca de skills completa, orquestração, rotinas por agente. |
-
-> **Pedido do Jean:** criar, editar, duplicar e excluir todos os agentes no app. Cada agente com pastas próprias (memória curta, memória longa, skills, ferramentas/plugins, MCP, acessos e segurança). Acesso a pastas locais e links com permissões e proibições. Pasta de segurança protegida por senha simples. Nada é criado ou alterado sem o clique do Jean. Seções próprias para **MCP do Mestre do PC**, **API** e **Configurações**. Um **orquestrador** escolhido pelo Jean. Visual no estilo dos **bots do Grok Bot**.
-
----
+| Fase 0 — preparação | ✅ pronto | Modelo padrão corrigido, Local x Nuvem 💲, segredo de ativação fora do bundle, token no `/mcp` do Mestre (PR #72). |
+| Fase 1 — agentes no disco + CRUD + API | ✅ pronto | `C:\Users\Jean\MultChatHub`, 5 padrões (inclui PC / Mestre), CRUD + lixeira 30 dias, editor de prompt com histórico/restaurar, seção API com Cofre do Windows. |
+| Fase 2 — MCP + Mestre do PC | ✅ pronto | `McpManager` HTTP/stdio, classificação + confirmação, matriz por agente, log, seção Mestre. |
+| Editor de servidores MCP | ✅ pronto | Adicionar/editar/testar/remover; só 127.0.0.1, sem shell; Mestre não pode ser removido. |
+| Números do Mestre (`system_status`) | ✅ pronto | Campos rotulados em pt-BR (processadores_logicos, ram_*_gb, disco_*_gb, tempo_ligado), bug `cpu:1` corrigido, `bruto` mantido. |
+| Teste de modelos (agente-model-file x qwen3.5:4b x llama3.2:3b) | 🟡 em andamento | Benchmark rodando no PC; padrão do PC / Mestre só muda se outro for claramente melhor. |
+| Markdown seguro no chat | ✅ pronto | Parser próprio, sem `dangerouslySetInnerHTML`, links só http(s)/mailto. |
+| Fase 3 — memória curta e longa | ✅ pronto | Curta: JSONL 200/dia, 14 dias. Longa: agente propõe, Jean aprova/edita/rejeita na aba Memória. Memória compartilhada ⏳. |
+| Grupos de agentes | 🟡 em andamento | Dados prontos e testados (CRUD, membros, entrar/sair, bloquear, moderador, convites com hash/validade/uso único/revogar). Faltam rodadas do chat em grupo, rotas, telas e aceite do convite. |
+| Links nativos `multchathub://` | ⏳ pendente | Registro do protocolo no Electron, telas "Abrindo…", link desconhecido, erro e sucesso. |
+| Canais | ⏳ pendente | — |
+| Tarefas | ⏳ pendente | — |
+| Polimento visual geral | ⏳ pendente | Estados vazios/carregando/erros, atalhos, responsivo. |
+| Fases 4–8 | ⏳ pendente | Acessos (pastas/links), senha da pasta segurança, biblioteca de skills, orquestração, rotinas por agente. |
 
 ## 0. O que existe hoje (diagnóstico do código)
 
