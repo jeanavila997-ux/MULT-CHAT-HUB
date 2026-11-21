@@ -22,7 +22,7 @@
     "electron:dev": "cross-env NODE_ENV=development concurrently \"pnpm run dev:all\" \"wait-on tcp:3001 && electron .\"",
     "electron:build": "pnpm run build:electron && electron-builder",
     "test:api-auth": "tsx server/routes/api.test.ts",
-    "test:front-auth": "tsx src/lib/backendAuth.test.ts",
+    "test:front-auth": "tsx src/lib/backendAuth.test.ts && tsx src/lib/markdown.test.ts",
     "test:hub": "tsx server/storage/paths.test.ts && tsx server/agents/registry.test.ts && tsx server/agents/prompt.test.ts && tsx server/secrets/secretStore.test.ts && tsx server/mcp/policy.test.ts && tsx server/mcp/manager.test.ts && tsx server/agent/agentRun.test.ts && tsx server/routes/hubRoutes.test.ts",
     "test:agent": "tsx server/agent/toolLoop.test.ts && tsx server/agent/skills.test.ts && tsx server/agent/mcpClient.test.ts && tsx server/providers/catalog.test.ts && tsx server/providers/paidGuard.test.ts && tsx server/routines/schedule.test.ts && tsx server/routines/routines.test.ts && tsx server/controllers/gatewayController.test.ts"
   },

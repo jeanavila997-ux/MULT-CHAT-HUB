@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useContext, useEffect, useRef, useState } from '
 import { Send, Bot, Mic, Paperclip } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ChatContext } from '../context/ChatContext';
+import { Markdown } from './Markdown';
 import { Button } from './ui/Button';
 import { IconButton } from './ui/IconButton';
 import { ProviderName } from '../types';
@@ -131,12 +132,16 @@ export default function ChatArea({ header }: { header?: ReactNode }) {
                   {msg.sender !== 'User' && msg.sender !== 'Sistema' && <Bot className="w-3 h-3" aria-hidden="true" />}
                   {msg.sender === 'User' ? 'Você' : msg.sender}
                 </span>
-                <p className="whitespace-pre-wrap break-words">
-                  {msg.text}
-                  {streamingId === msg.id && (
-                    <span className="inline-block w-0.5 h-4 bg-current ml-0.5 align-text-bottom animate-pulse" aria-hidden="true" />
-                  )}
-                </p>
+                {streamingId === msg.id || msg.sender === 'User' ? (
+                  <p className="whitespace-pre-wrap break-words">
+                    {msg.text}
+                    {streamingId === msg.id ? (
+                      <span className="inline-block w-0.5 h-4 bg-current ml-0.5 align-text-bottom animate-pulse" aria-hidden="true" />
+                    ) : null}
+                  </p>
+                ) : (
+                  <Markdown text={msg.text} />
+                )}
                 {msg.pendingTool && (
                   <div className="mt-2 not-italic space-y-2">
                     {Object.keys(msg.pendingTool.args).length > 0 && (
