@@ -15,6 +15,8 @@ const FIXED: Record<string, Record<string, ToolClass>> = {
     mestre_run_operation: 'exec',
     mestre_optimize_ram_and_temp: 'destructive', // esvazia a Lixeira
     mestre_ask_grok: 'paid', // IA paga via 9Router
+    mestre_turbo_diagnostico: 'read', // Turbo PC: só leitura
+    mestre_turbo_otimizar: 'destructive', // Turbo PC: limpa temporários e muda configurações (com desfazer)
   },
 };
 

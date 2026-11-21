@@ -15,6 +15,9 @@ const tests: [string, () => void][] = [
     assert.equal(classifyMcpTool('mestre', 'mestre_run_operation'), 'exec');
     assert.equal(classifyMcpTool('mestre', 'mestre_optimize_ram_and_temp'), 'destructive');
     assert.equal(classifyMcpTool('mestre', 'mestre_ask_grok'), 'paid');
+    assert.equal(classifyMcpTool('mestre', 'mestre_turbo_diagnostico'), 'read');
+    assert.equal(classifyMcpTool('mestre', 'mestre_turbo_otimizar'), 'destructive');
+    assert.equal(classifyMcpTool('mestre', 'mestre_turbo_otimizar', { readOnlyHint: true }), 'destructive', 'servidor não rebaixa o Turbo PC');
   }],
   ['desconhecida conta como escrita (pede confirmação); anotação readOnly vira leitura', () => {
     assert.equal(classifyMcpTool('outro', 'faz_algo'), 'write');

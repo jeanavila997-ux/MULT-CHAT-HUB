@@ -68,7 +68,7 @@ export function validateAgentInput(input: AgentInput): { errors: string[] } {
 
 export const MESTRE_SERVER_ID = 'mestre';
 /** Leitura do Mestre roda direto; o resto sempre pede confirmação no chat. */
-export const MESTRE_READ_TOOLS = ['mestre_system_status', 'mestre_list_operations', 'mestre_list_memories'];
+export const MESTRE_READ_TOOLS = ['mestre_system_status', 'mestre_list_operations', 'mestre_list_memories', 'mestre_turbo_diagnostico'];
 
 type Seed = AgentInput & { id: string; name: string };
 const base = {
