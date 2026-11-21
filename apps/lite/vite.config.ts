@@ -1,13 +1,16 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 
 export default defineConfig(({ mode }) => {
   // base relativa './' apenas no build do Electron (carrega via file://);
   // em web (Vercel/dev) usa '/' absoluto para evitar que sub-rotas
   // (e o SPA rewrite do vercel.json) quebrem o resolvimento de assets.
   const base = mode.startsWith('electron') ? './' : '/';
+  // Proxy /api segue a PORT do backend (apps/lite/.env.local), padrão 3000.
+  const env = loadEnv(mode, __dirname, '');
+  const apiTarget = `http://127.0.0.1:${env.PORT || process.env.PORT || 3000}`;
   return {
     base,
     plugins: [react(), tailwindcss()],
@@ -22,7 +25,7 @@ export default defineConfig(({ mode }) => {
       hmr: process.env.DISABLE_HMR !== 'true',
       proxy: {
         '/api': {
-          target: 'http://localhost:3000',
+          target: apiTarget,
           changeOrigin: true,
         },
       },

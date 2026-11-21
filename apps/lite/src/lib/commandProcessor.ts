@@ -14,6 +14,9 @@ const CLIENT_ANALYSIS_TOOLS: Record<string, AnalysisType> = {
   recommend_stack: 'software',
 };
 
+// /use_tool vindo do texto do modelo: ferramentas que escrevem só rodam com confirmação.
+const WRITE_TOOLS = new Set(['github_create_issue']);
+
 export interface CommandContext {
   channel: string;
   tasks: Task[];
@@ -22,6 +25,8 @@ export interface CommandContext {
   setTasks: Dispatch<SetStateAction<Task[]>>;
   setDataCache: Dispatch<SetStateAction<Record<string, unknown>>>;
   setReports: Dispatch<SetStateAction<string[]>>;
+  // Confirmação do usuário para ferramentas que escrevem (ex.: github_create_issue)
+  confirmWrite?: (toolName: string, args: unknown) => Promise<boolean>;
 }
 
 export async function processCommands(responseText: string, ctx: CommandContext): Promise<void> {
@@ -55,6 +60,11 @@ export async function processCommands(responseText: string, ctx: CommandContext)
             const msg = err instanceof Error ? err.message : String(err);
             addMessage({ id: newMsgId(), channel, sender: 'Sistema', text: `Erro na análise ${toolName}: ${msg}` });
           }
+          return;
+        }
+
+        if (WRITE_TOOLS.has(toolName) && !(ctx.confirmWrite && await ctx.confirmWrite(toolName, args))) {
+          addMessage({ id: newMsgId(), channel, sender: 'Sistema', text: `Execução de ${toolName} recusada (exige confirmação do usuário).` });
           return;
         }
 

@@ -1,10 +1,12 @@
 import { Request, Response } from 'express';
 import { createAdapter, DEFAULT_MODELS, normalizeProviderName, ProviderName } from '../../src/lib/providerAdapters.js';
 
-const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'fazendaavila2026/avila:latest';
-const LLM_BASE_URL = (process.env.LLM_BASE_URL || process.env.OLLAMA_HOST || 'http://127.0.0.1:8080/v1').replace(/\/$/, '');
-const LLM_PROVIDER = (process.env.LLM_PROVIDER || 'ollama').toLowerCase();
+// Lazy getters: dotenv.config() roda depois deste módulo ser importado (hoisting
+// de imports ESM), então process.env precisa ser lido por request.
+const ollamaHost = () => (process.env.OLLAMA_HOST || 'http://127.0.0.1:11434').replace(/\/$/, '');
+const ollamaModel = () => process.env.OLLAMA_MODEL || 'fazendaavila2026/avila:latest';
+const llmBaseUrl = () => (process.env.LLM_BASE_URL || process.env.OLLAMA_HOST || 'http://127.0.0.1:8080/v1').replace(/\/$/, '');
+const llmProvider = () => (process.env.LLM_PROVIDER || 'ollama').toLowerCase();
 
 const OLLAMA_TIMEOUT_MS = 90_000;
 const CLOUD_TIMEOUT_MS = 60_000;
@@ -25,8 +27,13 @@ function envKeyFor(provider: ProviderName): string {
     case 'gemini':
       return process.env.GEMINI_API_KEY ?? '';
     case 'openrouter':
-    case 'router9':
       return process.env.OPENROUTER_API_KEY ?? '';
+    case 'router9':
+      return process.env.ROUTER_API_KEY || process.env.OPENROUTER_API_KEY || '';
+    case 'nvidia':
+      return process.env.NVIDIA_API_KEY ?? '';
+    case 'cloudflare':
+      return process.env.CLOUDFLARE_API_TOKEN ?? '';
     case 'llamacpp':
       return process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY ?? '';
     case 'grok':
@@ -38,6 +45,47 @@ function envKeyFor(provider: ProviderName): string {
       return process.env.DEEPSEEK_API_KEY ?? process.env.OPENAI_API_KEY ?? '';
     case 'ollama':
       return '';
+  }
+}
+
+// Base URL resolvida no servidor (nunca vinda do cliente, para que as chaves do
+// .env.local não sejam enviadas a um endpoint arbitrário).
+function baseUrlFor(provider: ProviderName): string | undefined {
+  switch (provider) {
+    case 'ollama':
+      return ollamaHost();
+    case 'llamacpp':
+      return llmBaseUrl();
+    case 'router9':
+      return process.env.ROUTER_BASE_URL || 'http://127.0.0.1:20128/v1';
+    case 'grok':
+    case 'grok_bot':
+      return process.env.GROK_BASE_URL || 'https://api.x.ai/v1';
+    case 'deepseek':
+      return 'https://api.deepseek.com/v1';
+    case 'nvidia':
+      return process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
+    case 'cloudflare': {
+      const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+      return accountId
+        ? `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/v1`
+        : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+function defaultModelFor(provider: ProviderName): string {
+  switch (provider) {
+    case 'ollama':
+      return ollamaModel();
+    case 'llamacpp':
+      return process.env.LLM_MODEL || 'local-model';
+    case 'router9':
+      return process.env.ROUTER_MODEL || DEFAULT_MODELS.router9;
+    default:
+      return DEFAULT_MODELS[provider];
   }
 }
 
@@ -104,6 +152,8 @@ function resolveProvider(raw: unknown): ProviderName {
     'opencode',
     'router9',
     'deepseek',
+    'nvidia',
+    'cloudflare',
   ];
   const alias = normalizeProviderName(raw);
   if (alias && valid.includes(alias)) return alias;
@@ -115,7 +165,7 @@ function resolveProvider(raw: unknown): ProviderName {
   if (provider === '9router' || provider === '9-router' || provider === '9 router') return 'router9';
   if (provider === 'opencode' || provider === 'open code' || provider === 'open-code') return 'opencode';
   if (provider === 'terminal' || provider === 'power shell' || provider === 'powershell') return 'powershell';
-  return valid.includes(provider as ProviderName) ? (provider as ProviderName) : (LLM_PROVIDER === 'llamacpp' ? 'llamacpp' : 'ollama');
+  return valid.includes(provider as ProviderName) ? (provider as ProviderName) : (llmProvider() === 'llamacpp' ? 'llamacpp' : 'ollama');
 }
 
 export const handleChat = async (req: Request, res: Response) => {
@@ -137,10 +187,13 @@ export const handleChat = async (req: Request, res: Response) => {
     }
 
     const provider = resolveProvider(rawProvider);
-    const defaultModel = provider === 'ollama' ? OLLAMA_MODEL : provider === 'llamacpp' ? (process.env.LLM_MODEL || 'local-model') : DEFAULT_MODELS[provider];
+    const defaultModel = defaultModelFor(provider);
     const model = (typeof modelOverride === 'string' && modelOverride.trim()) ? modelOverride.trim() : defaultModel;
     const apiKey = (typeof reqApiKey === 'string' && reqApiKey.trim()) ? reqApiKey.trim() : envKeyFor(provider);
-    const baseUrl = provider === 'ollama' ? OLLAMA_HOST : provider === 'llamacpp' ? LLM_BASE_URL : undefined;
+    const baseUrl = baseUrlFor(provider);
+    if (provider === 'cloudflare' && !baseUrl) {
+      return res.status(400).json({ error: 'Cloudflare Workers AI: defina CLOUDFLARE_ACCOUNT_ID em apps/lite/.env.local.' });
+    }
     const timeoutMs = provider === 'ollama' || provider === 'llamacpp' ? OLLAMA_TIMEOUT_MS : CLOUD_TIMEOUT_MS;
     const maxTokens = thinking === 'HIGH' ? 2048 : 512;
 
@@ -180,7 +233,7 @@ export const handleChat = async (req: Request, res: Response) => {
       } else {
         const detail = err instanceof Error ? err.message : String(err);
         errMsg = provider === 'ollama'
-          ? `Ollama não acessível em ${OLLAMA_HOST}. Inicie com 'ollama serve' e baixe: 'ollama pull ${model}'. Detalhe: ${detail}`
+          ? `Ollama não acessível em ${ollamaHost()}. Inicie com 'ollama serve' e baixe: 'ollama pull ${model}'. Detalhe: ${detail}`
           : `Erro ao chamar ${provider}: ${detail}`;
       }
       slog('WARN', reqId, 'adapter_error', { provider, isTimeout, durationMs: Date.now() - t0 });
@@ -218,7 +271,8 @@ export const handleChatStream = async (req: Request, res: Response) => {
   const send = (payload: object) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
 
   try {
-    const { input, model = OLLAMA_MODEL, thinking = 'HIGH', history = [] } = req.body;
+    const { input, model: rawModel, thinking = 'HIGH', history = [] } = req.body;
+    const model = typeof rawModel === 'string' && rawModel.trim() ? rawModel.trim() : ollamaModel();
 
     if (!input) {
       send({ error: 'Input is required' });
@@ -245,7 +299,10 @@ export const handleChatStream = async (req: Request, res: Response) => {
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
     let clientDisconnected = false;
-    req.on('close', () => {
+    // 'close' do req dispara assim que o body é consumido (Node >= 16);
+    // a desconexão real do cliente é o 'close' do res antes de terminar.
+    res.on('close', () => {
+      if (res.writableEnded) return;
       clientDisconnected = true;
       controller.abort();
       clearTimeout(timeoutHandle);
@@ -253,7 +310,7 @@ export const handleChatStream = async (req: Request, res: Response) => {
 
     let ollamaResponse: globalThis.Response;
     try {
-      ollamaResponse = await fetch(`${OLLAMA_HOST}/api/chat`, {
+      ollamaResponse = await fetch(`${ollamaHost()}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, messages, stream: true, options: { num_predict: numPredict } }),
@@ -264,7 +321,7 @@ export const handleChatStream = async (req: Request, res: Response) => {
       const isTimeout = err instanceof Error && err.name === 'AbortError' && !clientDisconnected;
       const errMsg = isTimeout
         ? `Ollama não respondeu em ${OLLAMA_TIMEOUT_MS / 1000}s. Verifique se o modelo está carregado.`
-        : `Ollama não acessível em ${OLLAMA_HOST}. Inicie com 'ollama serve'.`;
+        : `Ollama não acessível em ${ollamaHost()}. Inicie com 'ollama serve'.`;
       slog('WARN', reqId, 'ollama_stream_unreachable', { isTimeout, durationMs: Date.now() - t0 });
       send({ error: errMsg });
       return res.end();
@@ -369,3 +426,56 @@ export const handleChatStream = async (req: Request, res: Response) => {
     res.end();
   }
 };
+
+// ── Modelos Ollama instalados ─────────────────────────────────────────────────
+// Endpoint: GET /api/models/ollama → { default, models[] } via Ollama /api/tags
+export const handleOllamaModels = async (_req: Request, res: Response) => {
+  const defaultModel = ollamaModel();
+  try {
+    const r = await fetch(`${ollamaHost()}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) {
+      return res.status(502).json({ default: defaultModel, models: [], error: `Ollama respondeu HTTP ${r.status}` });
+    }
+    const data = await r.json() as { models?: { name?: string }[] };
+    const models = (data.models ?? [])
+      .map((m) => m.name)
+      .filter((n): n is string => typeof n === 'string' && n.length > 0);
+    return res.json({ default: defaultModel, models });
+  } catch {
+    return res.status(503).json({ default: defaultModel, models: [], error: `Ollama não acessível em ${ollamaHost()}` });
+  }
+};
+
+// ── Chat simples para rotinas ─────────────────────────────────────────────────
+// Usa o provedor/modelo salvos na rotina e a chave do .env.local (não a da tela).
+// Sem fallback: se o provedor falhar, a rotina registra o erro.
+export async function runProviderChat(rawProvider: string, modelOverride: string, input: string): Promise<{ text: string; model: string }> {
+  const provider = resolveProvider(rawProvider);
+  const model = modelOverride.trim() || defaultModelFor(provider);
+  const baseUrl = baseUrlFor(provider);
+  if (provider === 'cloudflare' && !baseUrl) {
+    throw new Error('Cloudflare Workers AI: defina CLOUDFLARE_ACCOUNT_ID em apps/lite/.env.local.');
+  }
+  const timeoutMs = provider === 'ollama' || provider === 'llamacpp' ? OLLAMA_TIMEOUT_MS : CLOUD_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const text = await createAdapter(provider).chat({
+      messages: [
+        { role: 'system', content: 'Você está executando uma rotina agendada do MULT-CHAT-HUB, sem usuário olhando. Responda em português do Brasil, de forma curta e objetiva.' },
+        { role: 'user', content: input },
+      ],
+      model,
+      maxTokens: 1024,
+      apiKey: envKeyFor(provider),
+      baseUrl,
+      signal: controller.signal,
+    });
+    return { text, model };
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'AbortError') throw new Error(`${provider} não respondeu em ${timeoutMs / 1000}s.`);
+    throw err;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}

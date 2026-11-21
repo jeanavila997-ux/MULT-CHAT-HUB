@@ -14,7 +14,9 @@ export type ProviderName =
   | 'hermes'
   | 'opencode'
   | 'router9'
-  | 'deepseek';
+  | 'deepseek'
+  | 'nvidia'
+  | 'cloudflare';
 
 export interface ProviderConfig {
   model: string;
@@ -37,6 +39,8 @@ export interface Agent {
   status: string;
   thinkingLevel: 'LOW' | 'HIGH';
   tools: Tool[];
+  /** Conexão de gateway externo (o token fica no servidor do lite). */
+  gatewayId?: string;
 }
 
 export type AnalysisType = 'descritiva' | 'preditiva' | 'anomalias' | 'otimizacao' | 'software';
@@ -48,12 +52,22 @@ export interface AnalysisResult {
   analysis_result: Record<string, unknown>;
 }
 
+export interface AgentPendingTool {
+  pendingId: string;
+  name: string;
+  args: Record<string, unknown>;
+  source: string;
+  description: string;
+  status: 'pending' | 'approved' | 'denied';
+}
+
 export interface Message {
   id: string;
   channel: string;
   sender: string;
   text: string;
   analysis?: AnalysisResult;
+  pendingTool?: AgentPendingTool;
 }
 
 export interface Channel {
@@ -68,4 +82,39 @@ export interface Task {
   description: string;
   deadline: string;
   status: string;
+}
+
+// Rotinas agendadas (GET /api/routines)
+export interface RoutineRun {
+  id: string;
+  trigger: 'agenda' | 'manual';
+  startedAt: string;
+  finishedAt: string;
+  status: 'ok' | 'error';
+  provider: string;
+  model: string;
+  text: string;
+  error?: string;
+  toolsUsed: string[];
+  blocked: string[];
+}
+
+export interface Routine {
+  id: string;
+  name: string;
+  prompt: string;
+  schedule: string;
+  provider: string;
+  model: string;
+  tools: boolean;
+  active: boolean;
+  nextRunAt: string | null;
+  nextRunLocal: string | null;
+  lastRunAt?: string;
+  lastStatus?: 'ok' | 'error';
+  lastResult?: string;
+  lastError?: string;
+  history: RoutineRun[];
+  running: boolean;
+  paidProvider: boolean;
 }

@@ -83,7 +83,8 @@ function safeEval(expr: string): number {
 }
 
 // O Octokit lerá o token do seu .env (sem prefixo VITE_ — variável backend-only)
-const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN || '' });
+// Criado sob demanda: dotenv.config() roda depois do import deste módulo.
+const getOctokit = () => new Octokit(process.env.GITHUB_TOKEN ? { auth: process.env.GITHUB_TOKEN } : {});
 
 export const availableTools = [
   {
@@ -365,7 +366,7 @@ export const handleToolExecution = async (req: Request, res: Response) => {
     if (toolName === 'github_list_repos') {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10_000);
-      const response = await octokit.rest.repos.listForUser({
+      const response = await getOctokit().rest.repos.listForUser({
         username: args.username,
         per_page: 5,
         sort: 'updated',
@@ -379,7 +380,7 @@ export const handleToolExecution = async (req: Request, res: Response) => {
     }
 
     if (toolName === 'github_create_issue') {
-      const response = await octokit.rest.issues.create({
+      const response = await getOctokit().rest.issues.create({
         owner: args.owner,
         repo: args.repo,
         title: args.title,
@@ -481,3 +482,18 @@ export const handleToolExecution = async (req: Request, res: Response) => {
     return res.status(500).json({ error: error.message });
   }
 };
+
+// Executa uma ferramenta do app fora do Express (usado pelo agente local).
+// Reaproveita validação, limites e provenance de handleToolExecution.
+export async function runAppTool(toolName: string, args: Record<string, unknown>): Promise<string> {
+  let status = 200;
+  let body: { result?: unknown; error?: string } | null = null;
+  const res = {
+    status(code: number) { status = code; return this; },
+    json(payload: { result?: unknown; error?: string }) { body = payload; return this; },
+  } as unknown as Response;
+  await handleToolExecution({ body: { toolName, args } } as Request, res);
+  const out = body as { result?: unknown; error?: string } | null;
+  if (status >= 400) throw new Error(out?.error || `Ferramenta ${toolName} falhou (HTTP ${status}).`);
+  return typeof out?.result === 'string' ? out.result : JSON.stringify(out);
+}
