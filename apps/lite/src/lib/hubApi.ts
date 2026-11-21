@@ -32,7 +32,7 @@ export interface HubProvider {
 export interface McpToolInfo { name: string; description: string; klass: 'read' | 'write' | 'exec' | 'destructive' | 'paid'; label: string; requiresConfirmation: boolean }
 export interface McpStatus { id: string; name: string; ok: boolean; error?: string; tools: McpToolInfo[]; checkedAt: string }
 export interface MestreStatus extends McpStatus { url?: string; tokenConfigured: boolean; launcherAvailable: boolean }
-export interface McpServer { id: string; name: string; type: 'http' | 'stdio'; url?: string; command?: string; args?: string[]; enabled: boolean; builtin?: boolean; status?: McpStatus }
+export interface McpServer { id: string; name: string; type: 'http' | 'stdio'; url?: string; tokenEnv?: string; command?: string; args?: string[]; enabled: boolean; builtin?: boolean; status?: McpStatus }
 export interface McpLogEntry { ts: string; agentId: string; server: string; tool: string; klass: string; ok: boolean; ms: number; error?: string }
 export interface TrashEntry { trashId: string; id: string; name: string; deletedAt: string }
 export interface PromptHistoryEntry { file: string; version: number; savedAt: string; systemPrompt: string }
@@ -74,6 +74,8 @@ export const hubApi = {
   listMcpServers: () => req<{ servers: McpServer[] }>('GET', '/api/mcp/servers'),
   mcpStatus: (id: string, force = false) => req<McpStatus>('GET', `/api/mcp/servers/${encodeURIComponent(id)}/status${force ? '?force=1' : ''}`),
   testMcpTool: (id: string, tool: string) => req<{ ok: boolean; ms: number; output: string }>('POST', `/api/mcp/servers/${encodeURIComponent(id)}/test`, { tool }),
+  saveMcpServer: (cfg: McpServer & { tokenEnv?: string }) => req<{ server: McpServer }>('POST', '/api/mcp/servers', cfg),
+  removeMcpServer: (id: string) => req<{ ok: boolean }>('DELETE', `/api/mcp/servers/${encodeURIComponent(id)}`),
   mcpLog: () => req<{ entries: McpLogEntry[] }>('GET', '/api/mcp/log?n=30'),
   mestreStatus: (force = false) => req<MestreStatus>('GET', `/api/mestre/status${force ? '?force=1' : ''}`),
   mestreReconnect: () => req<McpStatus>('POST', '/api/mestre/reconnect'),

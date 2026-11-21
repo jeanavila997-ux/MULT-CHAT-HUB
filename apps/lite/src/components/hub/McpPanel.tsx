@@ -6,6 +6,7 @@ import { hubApi, McpLogEntry, McpServer, MestreStatus } from '../../lib/hubApi';
 import { useConfirm } from '../ui/ConfirmDialog';
 import { Button } from '../ui/Button';
 import { PanelShell } from './PanelShell';
+import McpServerEditor from './McpServerEditor';
 
 const CLASS_ORDER = ['read', 'write', 'exec', 'destructive', 'paid'] as const;
 const CLASS_TITLE: Record<string, string> = { read: 'Leitura (roda direto)', write: 'Escrita (confirma)', exec: 'Execução (confirma)', destructive: 'Destrutivas (confirma)', paid: 'Pagas 💲 (confirma)' };
@@ -78,13 +79,7 @@ export default function McpPanel({ onClose, onStatusChange }: { onClose: () => v
 
       {out ? <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-lg bg-zinc-950 text-zinc-100 p-3 text-[11px]">{out}</pre> : null}
 
-      <section aria-label="Outros servidores" className="space-y-1">
-        <h3 className="text-sm font-semibold">Servidores ({servers.length})</h3>
-        <ul className="text-xs space-y-1">
-          {servers.map((s) => <li key={s.id}>{s.status?.ok ? '🟢' : '🔴'} {s.name} · {s.type}{s.builtin ? ' · embutido' : ''}</li>)}
-        </ul>
-        <p className="text-xs text-zinc-500">Outros servidores (HTTP local ou stdio) são cadastrados em MultChatHub\mcp\servers.json; o editor na tela chega na próxima fase.</p>
-      </section>
+      <McpServerEditor servers={servers} onChanged={() => void load(true)} />
 
       <section aria-label="Log de chamadas" className="space-y-1">
         <h3 className="text-sm font-semibold">Últimas chamadas</h3>

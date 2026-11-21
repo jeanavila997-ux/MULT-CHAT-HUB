@@ -85,6 +85,17 @@ const tests: [string, () => Promise<void>][] = [
     assert.equal((await call('POST', '/mcp/servers/mestre/test', { tool: 'mestre_optimize_ram_and_temp' })).status, 400);
     assert.ok((await call('GET', '/mcp/log')).body.entries.length >= 1);
   }],
+  ['servidores MCP: cadastrar, editar, recusar shell, remover; Mestre não sai', async () => {
+    assert.equal((await call('POST', '/mcp/servers', { id: 'ruim', name: 'Ruim', type: 'stdio', command: 'cmd.exe', args: ['/c', 'dir'], enabled: true })).status, 400);
+    assert.equal((await call('POST', '/mcp/servers', { id: 'remoto', name: 'Remoto', type: 'http', url: 'http://10.1.1.1/mcp', enabled: true })).status, 400);
+    const ok = await call('POST', '/mcp/servers', { id: 'local', name: 'Local', type: 'http', url: 'http://127.0.0.1:9100/mcp', enabled: false });
+    assert.equal(ok.status, 200);
+    assert.equal((await call('POST', '/mcp/servers', { id: 'local', name: 'Local 2', type: 'http', url: 'http://127.0.0.1:9100/mcp', enabled: false })).body.server.name, 'Local 2');
+    assert.ok((await call('GET', '/mcp/servers')).body.servers.some((s: { id: string }) => s.id === 'local'));
+    assert.equal((await call('DELETE', '/mcp/servers/mestre')).status, 400);
+    assert.equal((await call('DELETE', '/mcp/servers/local')).status, 200);
+    assert.equal((await call('GET', '/mcp/servers')).body.servers.some((s: { id: string }) => s.id === 'local'), false);
+  }],
   ['iniciar o Mestre exige confirm=true', async () => {
     assert.equal((await call('POST', '/mestre/start', {})).status, 400);
   }],
