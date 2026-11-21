@@ -1,6 +1,19 @@
 # Plano — Agentes editáveis no MULT-CHAT-HUB lite
 
-> **Status:** só plano, nada foi implementado. Escrito em 20/11/2026 a partir do código real de `apps/lite` (commit `0964700` + mudanças locais não commitadas) e do Mestre do PC V10.
+> **Status (21/11/2026, 00:15 Rio Branco):** fases 0, 1, 2 e 3 implementadas no branch `feat/rotinas-agentes-20261120` (PR #23, draft). Grupos de agentes em andamento (camada de dados pronta e testada). Veja "Progresso" abaixo.
+
+## Progresso da implementação
+
+| Fase | Situação | O que já funciona |
+|---|---|---|
+| 0. Preparação | ✅ pronta | Modelo padrão corrigido, Local x Nuvem 💲, segredo de ativação fora do bundle (proxy do Vite / preload do Electron), token no `/mcp` do Mestre (PR #72 do Mestre). |
+| 1. Agentes no disco + CRUD + API | ✅ pronta | `C:\Users\Jean\MultChatHub\agentes`, 5 padrões (inclui **PC / Mestre**), criar/editar/duplicar/exportar/importar/excluir com lixeira de 30 dias, editor de prompt com histórico e "restaurar padrão", seção API com Cofre do Windows (`@napi-rs/keyring`), testar provedor, chaves nunca voltam ao front. |
+| 2. MCP + Mestre do PC | ✅ pronta | `McpManager` HTTP + stdio, classificação leitura/escrita/execução/destrutiva/paga, confirmação obrigatória fora da leitura, matriz por agente, log, seção Mestre (status, reconectar, iniciar), **tela de servidores MCP** (adicionar/editar/testar/remover, só 127.0.0.1, sem shell). `system_status` do Mestre em pt-BR rotulado. |
+| 3. Memória | ✅ pronta | Curta: sessões JSONL (200 msgs/dia, apaga após 14 dias). Longa: o agente só **propõe** (`propor_memoria`, recusa segredos); o Jean aprova/edita/rejeita/apaga na aba Memória; só fatos aprovados entram no prompt. Memória compartilhada: pendente. |
+| Grupos de agentes (pedido extra) | 🟡 em andamento | `GroupStore` pronto e testado: CRUD, adicionar/remover, entrar/sair, bloquear/desbloquear, moderador, convites `multchathub://grupo/<id>?convite=<token>` (só hash salvo, validade, uso único, revogar). Falta: rodadas do chat em grupo, rotas, telas e tela de aceite do link. |
+| Extras | ✅ | Markdown seguro no chat (sem HTML cru). |
+| 4–8 | ⏳ não iniciadas | Acessos (pastas/links), senha da pasta segurança, biblioteca de skills completa, orquestração, rotinas por agente. |
+
 > **Pedido do Jean:** criar, editar, duplicar e excluir todos os agentes no app. Cada agente com pastas próprias (memória curta, memória longa, skills, ferramentas/plugins, MCP, acessos e segurança). Acesso a pastas locais e links com permissões e proibições. Pasta de segurança protegida por senha simples. Nada é criado ou alterado sem o clique do Jean. Seções próprias para **MCP do Mestre do PC**, **API** e **Configurações**. Um **orquestrador** escolhido pelo Jean. Visual no estilo dos **bots do Grok Bot**.
 
 ---
