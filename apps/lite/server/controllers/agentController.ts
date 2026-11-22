@@ -6,12 +6,14 @@ import { DEFAULT_LOCAL_MODEL } from '../providers/catalog.js';
 import { getHub, type Hub } from '../hub.js';
 import { resolveAgentRun, LEGACY_SCOPE, AgentScope } from '../agent/agentRun.js';
 import { paidGuardError } from '../providers/paidGuard.js';
+import { resolveSequence, runWithFallback } from '../ollama/modelChain.js';
+import { loadChain } from '../ollama/modelChainStore.js';
 
 // Agente local: Ollama com tool-calling nativo (/api/chat + tools).
 // Só usa o Ollama local — nunca troca sozinho para provedor pago.
 
 const ollamaHost = () => (process.env.OLLAMA_HOST || 'http://127.0.0.1:11434').replace(/\/$/, '');
-export const ollamaModel = () => process.env.OLLAMA_MODEL || DEFAULT_LOCAL_MODEL;
+export const ollamaModel = () => process.env.OLLAMA_MODEL?.trim() || loadChain().uso1 || DEFAULT_LOCAL_MODEL;
 export const maxIterations = () => {
   const n = Number(process.env.AGENT_MAX_TOOL_ITERATIONS);
   return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 10) : DEFAULT_MAX_ITERATIONS;
@@ -132,13 +134,20 @@ export const handleAgentChat = async (req: Request, res: Response) => {
   } catch (err) {
     return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
-  const model = run.model;
+  const cfg = loadChain();
+  const sequence = resolveSequence({
+    requested: run.model,
+    uso1: cfg.uso1,
+    chain: cfg.chain,
+    allowPaidFallback: cfg.allowPaidFallback,
+    confirmPaid: req.body?.confirmPaid === true,
+  });
+  const model = sequence[0] || run.model;
   const paidError = paidGuardError('ollama', model, req.body?.confirmPaid);
   if (paidError) return res.status(402).json({ error: paidError, needsPaidConfirmation: true });
   try {
     const { tools } = await buildAgentTools(run.scope, hub?.mcp ?? null, hub?.memory ?? null);
     const memoryBlock = agent && hub ? safeMemoryBlock(hub, agent.id) : '';
-    const system = [await modelSystem(model), run.systemPrompt, memoryBlock, buildAgentRules(run.skills)].filter(Boolean).join('\n\n');
     if (agent && hub) rememberShort(hub, agent.id, 'user', input);
     const historyMessages: LoopMessage[] = (Array.isArray(history) ? history : [])
       .slice(-10)
@@ -146,14 +155,17 @@ export const handleAgentChat = async (req: Request, res: Response) => {
         role: m?.role === 'user' ? 'user' : 'assistant',
         content: String(m?.content ?? ''),
       }));
-    const state: LoopState = {
-      messages: [{ role: 'system', content: system }, ...historyMessages, { role: 'user', content: input }],
-      queue: [],
-      iterations: 0,
-      trace: [],
-    };
-    const result = await runToolLoop({ chat: ollamaChat(model), tools, maxIterations: maxIterations() }, state);
-    return respond(res, result, model, run.scope, run.agentId);
+    const out = await runWithFallback(sequence, async (m) => {
+      const system = [await modelSystem(m), run.systemPrompt, memoryBlock, buildAgentRules(run.skills)].filter(Boolean).join('\n\n');
+      const state: LoopState = {
+        messages: [{ role: 'system', content: system }, ...historyMessages, { role: 'user', content: input }],
+        queue: [],
+        iterations: 0,
+        trace: [],
+      };
+      return runToolLoop({ chat: ollamaChat(m), tools, maxIterations: maxIterations() }, state);
+    });
+    return respond(res, out.result, out.model, run.scope, run.agentId);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     slog('WARN', 'agent_error', { model, agentId: run.agentId, error: msg.slice(0, 200) });

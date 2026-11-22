@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { handleChat, handleChatStream, handleOllamaModels } from '../controllers/chatController.js';
+import { handleChat, handleChatStream } from '../controllers/chatController.js';
+import { handleDeleteOllamaModel, handleOllamaModels, handlePullOllamaModel, handlePutOllamaChain } from '../controllers/ollamaModelsController.js';
 import { handleToolExecution, availableTools } from '../controllers/toolController.js';
 import { handleClaudeSecurityStream } from '../controllers/claudeSecurityController.js';
 import { handleListRoutines, handleCreateRoutine, handleUpdateRoutine, handleDeleteRoutine, handleRunRoutine } from '../controllers/routinesController.js';
@@ -68,6 +69,9 @@ router.get('/tools', (_req, res) => {
 router.use(requireActivationSecret);
 
 router.get('/models/ollama', handleOllamaModels);
+router.put('/models/ollama/chain', handlePutOllamaChain);
+router.post('/models/ollama/pull', rateLimit, handlePullOllamaModel);
+router.post('/models/ollama/delete', handleDeleteOllamaModel);
 router.get('/agent/skills', handleAgentSkills);
 router.get('/agent/tools', handleAgentTools);
 router.post('/agent/chat', rateLimit, handleAgentChat);

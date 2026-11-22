@@ -48,6 +48,9 @@ export default function RoutinesModal({ isOpen, onClose }: { isOpen: boolean; on
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [openHistory, setOpenHistory] = useState<string | null>(null);
+  const [localModels, setLocalModels] = useState<string[]>([]);
+  const [cloudModels, setCloudModels] = useState<string[]>([]);
+  const [uso1, setUso1] = useState('');
 
   const api = useCallback(async (path: string, init: RequestInit = {}) => {
     const res = await fetch(`/api/routines${path}`, {
@@ -74,6 +77,14 @@ export default function RoutinesModal({ isOpen, onClose }: { isOpen: boolean; on
   useEffect(() => {
     if (!isOpen) return;
     void refresh();
+    fetch('/api/models/ollama', { headers: getBackendAuthHeaders() })
+      .then((r) => r.json())
+      .then((d: { local?: string[]; cloud?: string[]; uso1?: string }) => {
+        setLocalModels(d.local ?? []);
+        setCloudModels(d.cloud ?? []);
+        setUso1(d.uso1 ?? '');
+      })
+      .catch(() => {});
     const t = setInterval(() => { void refresh(); }, 5000);
     return () => clearInterval(t);
   }, [isOpen, refresh]);
@@ -155,8 +166,15 @@ export default function RoutinesModal({ isOpen, onClose }: { isOpen: boolean; on
                   {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                 </select>
               </label>
-              <label className="block"><span className={labelCls}>Modelo</span>
-                <input className={inputCls} value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })} placeholder="vazio = padrão do servidor" />
+              <label className="block"><span className={labelCls}>Modelo (vazio = uso 1)</span>
+                {draft.provider === 'ollama' ? (
+                  <select className={inputCls} value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })}>
+                    <option value="">{uso1 ? `Uso 1 (${uso1})` : 'Uso 1 (padrão)'}</option>
+                    {[...localModels, ...cloudModels].map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                ) : (
+                  <input className={inputCls} value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })} placeholder="modelo do provedor" />
+                )}
               </label>
             </div>
             {paidDraft && (

@@ -7,6 +7,7 @@ import { Button } from '../ui/Button';
 import { PanelShell } from './PanelShell';
 
 const AgentConfig = lazy(() => import('../AgentConfig'));
+const OllamaModelsPanel = lazy(() => import('./OllamaModelsPanel'));
 const SECRET_KEY = 'mch:activation-secret';
 
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
@@ -43,6 +44,10 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         <p className="text-xs font-mono break-all text-zinc-600 dark:text-zinc-300">{ctx?.hubRoot || '…'}</p>
         <p className="text-xs text-zinc-500">Fora do repositório (variável MCH_DATA_ROOT). Cada agente tem pastas de memória, skills, ferramentas, MCP, acessos, segurança, rotinas e logs.</p>
       </section>
+
+      <Suspense fallback={<p className="text-xs text-zinc-500">Carregando modelos…</p>}>
+        <OllamaModelsPanel />
+      </Suspense>
 
       <section className="space-y-2">
         <h3 className="text-sm font-semibold">Agentes</h3>

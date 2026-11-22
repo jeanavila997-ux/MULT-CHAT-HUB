@@ -91,6 +91,9 @@ export const hubApi = {
   mestreReconnect: () => req<McpStatus>('POST', '/api/mestre/reconnect'),
   mestreStart: () => req<{ ok: boolean }>('POST', '/api/mestre/start', { confirm: true }),
 
-  ollamaModels: () => req<{ default?: string; local?: string[]; cloud?: string[]; models?: string[] }>('GET', '/api/models/ollama'),
+  ollamaModels: () => req<{ default?: string; uso1?: string; chain?: string[]; allowPaidFallback?: boolean; local?: string[]; cloud?: string[]; models?: string[] }>('GET', '/api/models/ollama'),
+  ollamaPull: (name: string) => req<{ ok: boolean; name: string }>('POST', '/api/models/ollama/pull', { name }),
+  ollamaDelete: (name: string) => req<{ ok: boolean; name: string }>('POST', '/api/models/ollama/delete', { name }),
+  ollamaChain: (cfg: { uso1?: string; chain?: string[]; allowPaidFallback?: boolean }) => req<{ uso1: string; chain: string[]; allowPaidFallback: boolean }>('PUT', '/api/models/ollama/chain', cfg),
   skills: () => req<{ skills: { name: string; description: string; dir: string }[] }>('GET', '/api/agent/skills'),
 };

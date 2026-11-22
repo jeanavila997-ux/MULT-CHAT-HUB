@@ -1,13 +1,15 @@
 import { Request, Response } from 'express';
 import { createAdapter, DEFAULT_MODELS, normalizeProviderName, ProviderName } from '../../src/lib/providerAdapters.js';
-import { classifyOllamaModels, DEFAULT_LOCAL_MODEL, hiddenOllamaModels } from '../providers/catalog.js';
+import { DEFAULT_LOCAL_MODEL } from '../providers/catalog.js';
 import { paidGuardError } from '../providers/paidGuard.js';
 import { providerKey } from '../hub.js';
+import { resolveSequence, runWithFallback } from '../ollama/modelChain.js';
+import { loadChain } from '../ollama/modelChainStore.js';
 
 // Lazy getters: dotenv.config() roda depois deste módulo ser importado (hoisting
 // de imports ESM), então process.env precisa ser lido por request.
 const ollamaHost = () => (process.env.OLLAMA_HOST || 'http://127.0.0.1:11434').replace(/\/$/, '');
-const ollamaModel = () => process.env.OLLAMA_MODEL || DEFAULT_LOCAL_MODEL;
+const ollamaModel = () => process.env.OLLAMA_MODEL?.trim() || loadChain().uso1 || DEFAULT_LOCAL_MODEL;
 const llmBaseUrl = () => (process.env.LLM_BASE_URL || process.env.OLLAMA_HOST || 'http://127.0.0.1:8080/v1').replace(/\/$/, '');
 const llmProvider = () => (process.env.LLM_PROVIDER || 'ollama').toLowerCase();
 
@@ -191,7 +193,12 @@ export const handleChat = async (req: Request, res: Response) => {
 
     const provider = resolveProvider(rawProvider);
     const defaultModel = defaultModelFor(provider);
-    const model = (typeof modelOverride === 'string' && modelOverride.trim()) ? modelOverride.trim() : defaultModel;
+    const requested = (typeof modelOverride === 'string' && modelOverride.trim()) ? modelOverride.trim() : '';
+    const cfg = provider === 'ollama' ? loadChain() : null;
+    const sequence = provider === 'ollama'
+      ? resolveSequence({ requested, uso1: cfg!.uso1, chain: cfg!.chain, allowPaidFallback: cfg!.allowPaidFallback, confirmPaid: req.body?.confirmPaid === true })
+      : [requested || defaultModel];
+    const model = sequence[0] || defaultModel;
     const paidError = paidGuardError(provider, model, req.body?.confirmPaid);
     if (paidError) return res.status(402).json({ error: paidError, needsPaidConfirmation: true });
     const apiKey = await providerKey(provider, () => envKeyFor(provider));
@@ -218,17 +225,26 @@ export const handleChat = async (req: Request, res: Response) => {
       { role: 'user' as const, content: input },
     ];
 
-    slog('INFO', reqId, 'chat_request', { provider, model, thinking, historyTurns: historyMessages.length });
-
-    const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+    slog('INFO', reqId, 'chat_request', { provider, model, sequence, thinking, historyTurns: historyMessages.length });
 
     let responseText: string;
+    let usedModel = model;
+    let tried: string[] = [];
     try {
       const adapter = createAdapter(provider);
-      responseText = await adapter.chat({ messages, model, maxTokens, apiKey, baseUrl, signal: controller.signal });
+      const out = await runWithFallback(sequence, async (m) => {
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          return await adapter.chat({ messages, model: m, maxTokens, apiKey, baseUrl, signal: controller.signal });
+        } finally {
+          clearTimeout(timeoutHandle);
+        }
+      });
+      responseText = out.result;
+      usedModel = out.model;
+      tried = out.tried;
     } catch (err: unknown) {
-      clearTimeout(timeoutHandle);
       const isTimeout = err instanceof Error && err.name === 'AbortError';
       let errMsg: string;
       if (isTimeout) {
@@ -241,14 +257,12 @@ export const handleChat = async (req: Request, res: Response) => {
           ? `Ollama não acessível em ${ollamaHost()}. Inicie com 'ollama serve' e baixe: 'ollama pull ${model}'. Detalhe: ${detail}`
           : `Erro ao chamar ${provider}: ${detail}`;
       }
-      slog('WARN', reqId, 'adapter_error', { provider, isTimeout, durationMs: Date.now() - t0 });
-      return res.status(503).json({ error: errMsg });
-    } finally {
-      clearTimeout(timeoutHandle);
+      slog('WARN', reqId, 'adapter_error', { provider, isTimeout, durationMs: Date.now() - t0, tried });
+      return res.status(503).json({ error: errMsg, tried });
     }
 
-    slog('INFO', reqId, 'chat_ok', { provider, model, durationMs: Date.now() - t0, chars: responseText.length });
-    return res.json({ text: responseText });
+    slog('INFO', reqId, 'chat_ok', { provider, model: usedModel, tried, durationMs: Date.now() - t0, chars: responseText.length });
+    return res.json({ text: responseText, model: usedModel, tried });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Internal Server Error';
     slog('ERROR', reqId, 'chat_unhandled_error', { error: msg, durationMs: Date.now() - t0 });
@@ -277,7 +291,10 @@ export const handleChatStream = async (req: Request, res: Response) => {
 
   try {
     const { input, model: rawModel, thinking = 'HIGH', history = [] } = req.body;
-    const model = typeof rawModel === 'string' && rawModel.trim() ? rawModel.trim() : ollamaModel();
+    const requested = typeof rawModel === 'string' && rawModel.trim() ? rawModel.trim() : '';
+    const cfg = loadChain();
+    const sequence = resolveSequence({ requested, uso1: cfg.uso1, chain: cfg.chain, allowPaidFallback: cfg.allowPaidFallback, confirmPaid: req.body?.confirmPaid === true });
+    const model = sequence[0] || ollamaModel();
 
     if (!input) {
       send({ error: 'Input is required' });
@@ -304,7 +321,7 @@ export const handleChatStream = async (req: Request, res: Response) => {
       { role: 'user', content: input },
     ];
 
-    slog('INFO', reqId, 'ollama_stream_request', { model, thinking, historyTurns: historyMessages.length });
+    slog('INFO', reqId, 'ollama_stream_request', { model, sequence, thinking, historyTurns: historyMessages.length });
 
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
@@ -318,35 +335,41 @@ export const handleChatStream = async (req: Request, res: Response) => {
       clearTimeout(timeoutHandle);
     });
 
-    let ollamaResponse: globalThis.Response;
+    let ollamaResponse: globalThis.Response | undefined;
+    let usedModel = model;
+    const tried: string[] = [];
     try {
-      ollamaResponse = await fetch(`${ollamaHost()}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, messages, stream: true, options: { num_predict: numPredict } }),
-        signal: controller.signal,
+      const opened = await runWithFallback(sequence, async (m) => {
+        tried.push(m);
+        const r = await fetch(`${ollamaHost()}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: m, messages, stream: true, options: { num_predict: numPredict } }),
+          signal: controller.signal,
+        });
+        if (!r.ok) {
+          const text = await r.text();
+          throw new Error(`Ollama ${r.status}: ${text}`);
+        }
+        if (!r.body) throw new Error('Sem corpo de resposta do Ollama.');
+        return { response: r, model: m };
       });
+      ollamaResponse = opened.result.response;
+      usedModel = opened.result.model;
     } catch (err: unknown) {
       clearTimeout(timeoutHandle);
       const isTimeout = err instanceof Error && err.name === 'AbortError' && !clientDisconnected;
       const errMsg = isTimeout
         ? `Ollama não respondeu em ${OLLAMA_TIMEOUT_MS / 1000}s. Verifique se o modelo está carregado.`
         : `Ollama não acessível em ${ollamaHost()}. Inicie com 'ollama serve'.`;
-      slog('WARN', reqId, 'ollama_stream_unreachable', { isTimeout, durationMs: Date.now() - t0 });
-      send({ error: errMsg });
+      slog('WARN', reqId, 'ollama_stream_unreachable', { isTimeout, durationMs: Date.now() - t0, tried });
+      send({ error: errMsg, tried });
       return res.end();
     }
 
-    if (!ollamaResponse.ok) {
+    if (!ollamaResponse?.body) {
       clearTimeout(timeoutHandle);
-      const text = await ollamaResponse.text();
-      send({ error: `Ollama respondeu ${ollamaResponse.status}: ${text}` });
-      return res.end();
-    }
-
-    if (!ollamaResponse.body) {
-      clearTimeout(timeoutHandle);
-      send({ error: 'Sem corpo de resposta do Ollama.' });
+      send({ error: 'Sem corpo de resposta do Ollama.', tried });
       return res.end();
     }
 
@@ -374,8 +397,8 @@ export const handleChatStream = async (req: Request, res: Response) => {
             }
             if (parsed.done) {
               clearTimeout(timeoutHandle);
-              send({ done: true, text: accumulated });
-              slog('INFO', reqId, 'ollama_stream_ok', { durationMs: Date.now() - t0, tokens: tokenCount, chars: accumulated.length });
+              send({ done: true, text: accumulated, model: usedModel, tried });
+              slog('INFO', reqId, 'ollama_stream_ok', { durationMs: Date.now() - t0, tokens: tokenCount, chars: accumulated.length, model: usedModel, tried });
               return res.end();
             }
           } catch { /* linha NDJSON malformada — ignorar */ }
@@ -400,8 +423,8 @@ export const handleChatStream = async (req: Request, res: Response) => {
             }
             if (parsed.done) {
               clearTimeout(timeoutHandle);
-              send({ done: true, text: accumulated });
-              slog('INFO', reqId, 'ollama_stream_ok', { durationMs: Date.now() - t0, tokens: tokenCount, chars: accumulated.length });
+              send({ done: true, text: accumulated, model: usedModel, tried });
+              slog('INFO', reqId, 'ollama_stream_ok', { durationMs: Date.now() - t0, tokens: tokenCount, chars: accumulated.length, model: usedModel, tried });
               return res.end();
             }
           } catch { /* linha NDJSON malformada — ignorar */ }
@@ -437,57 +460,43 @@ export const handleChatStream = async (req: Request, res: Response) => {
   }
 };
 
-// ── Modelos Ollama instalados ─────────────────────────────────────────────────
-// Endpoint: GET /api/models/ollama → { default, models[] } via Ollama /api/tags
-export const handleOllamaModels = async (_req: Request, res: Response) => {
-  const defaultModel = ollamaModel();
-  try {
-    const r = await fetch(`${ollamaHost()}/api/tags`, { signal: AbortSignal.timeout(5000) });
-    if (!r.ok) {
-      return res.status(502).json({ default: defaultModel, models: [], error: `Ollama respondeu HTTP ${r.status}` });
-    }
-    const data = await r.json() as { models?: { name?: string }[] };
-    const names = (data.models ?? [])
-      .map((m) => m.name)
-      .filter((n): n is string => typeof n === 'string' && n.length > 0);
-    // local = roda no PC (grátis); cloud = nuvem do Ollama (paga, pede confirmação).
-    const { local, cloud, hidden } = classifyOllamaModels(names, hiddenOllamaModels());
-    return res.json({ default: defaultModel, models: [...local, ...cloud], local, cloud, hidden });
-  } catch {
-    return res.status(503).json({ default: defaultModel, models: [], error: `Ollama não acessível em ${ollamaHost()}` });
-  }
-};
-
 // ── Chat simples para rotinas ─────────────────────────────────────────────────
-// Usa o provedor/modelo salvos na rotina e a chave do .env.local (não a da tela).
-// Sem fallback: se o provedor falhar, a rotina registra o erro.
+// Ollama: se a rotina tem modelo próprio, começa nele; se falhar, segue a cadeia.
+// Outros provedores: um único modelo, sem troca automática.
 export async function runProviderChat(rawProvider: string, modelOverride: string, input: string): Promise<{ text: string; model: string }> {
   const provider = resolveProvider(rawProvider);
-  const model = modelOverride.trim() || defaultModelFor(provider);
+  const requested = modelOverride.trim();
+  const cfg = provider === 'ollama' ? loadChain() : null;
+  const sequence = provider === 'ollama'
+    ? resolveSequence({ requested, uso1: cfg!.uso1, chain: cfg!.chain, allowPaidFallback: false, confirmPaid: false })
+    : [requested || defaultModelFor(provider)];
   const baseUrl = baseUrlFor(provider);
   if (provider === 'cloudflare' && !baseUrl) {
     throw new Error('Cloudflare Workers AI: defina CLOUDFLARE_ACCOUNT_ID em apps/lite/.env.local.');
   }
   const timeoutMs = provider === 'ollama' || provider === 'llamacpp' ? OLLAMA_TIMEOUT_MS : CLOUD_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+  const adapter = createAdapter(provider);
+  const apiKey = await providerKey(provider, () => envKeyFor(provider));
+  const messages = [
+    { role: 'system' as const, content: 'Você está executando uma rotina agendada do MULT-CHAT-HUB, sem usuário olhando. Responda em português do Brasil, de forma curta e objetiva.' },
+    { role: 'user' as const, content: input },
+  ];
   try {
-    const text = await createAdapter(provider).chat({
-      messages: [
-        { role: 'system', content: 'Você está executando uma rotina agendada do MULT-CHAT-HUB, sem usuário olhando. Responda em português do Brasil, de forma curta e objetiva.' },
-        { role: 'user', content: input },
-      ],
-      model,
-      maxTokens: 1024,
-      apiKey: await providerKey(provider, () => envKeyFor(provider)),
-      baseUrl,
-      signal: controller.signal,
+    const out = await runWithFallback(sequence, async (m) => {
+      const controller = new AbortController();
+      const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await adapter.chat({ messages, model: m, maxTokens: 1024, apiKey, baseUrl, signal: controller.signal });
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') throw new Error(`${provider} não respondeu em ${timeoutMs / 1000}s.`);
+        throw err;
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
     });
-    return { text, model };
+    return { text: out.result, model: out.model };
   } catch (err: unknown) {
     if (err instanceof Error && err.name === 'AbortError') throw new Error(`${provider} não respondeu em ${timeoutMs / 1000}s.`);
     throw err;
-  } finally {
-    clearTimeout(timeoutHandle);
   }
 }
