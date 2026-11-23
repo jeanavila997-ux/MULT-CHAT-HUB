@@ -34,6 +34,8 @@ function envKeyFor(provider: ProviderName): string {
       return process.env.NVIDIA_API_KEY ?? '';
     case 'cloudflare':
       return process.env.CLOUDFLARE_API_TOKEN ?? '';
+    case 'jarvis':
+      return process.env.JARVIS_PASS ?? '';
     case 'llamacpp':
       return process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY ?? '';
     case 'grok':
@@ -71,6 +73,8 @@ function baseUrlFor(provider: ProviderName): string | undefined {
         ? `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/v1`
         : undefined;
     }
+    case 'jarvis':
+      return process.env.JARVIS_URL || 'http://127.0.0.1:3200';
     default:
       return undefined;
   }
@@ -154,6 +158,7 @@ function resolveProvider(raw: unknown): ProviderName {
     'deepseek',
     'nvidia',
     'cloudflare',
+    'jarvis',
   ];
   const alias = normalizeProviderName(raw);
   if (alias && valid.includes(alias)) return alias;
@@ -221,7 +226,10 @@ export const handleChat = async (req: Request, res: Response) => {
     let responseText: string;
     try {
       const adapter = createAdapter(provider);
-      responseText = await adapter.chat({ messages, model, maxTokens, apiKey, baseUrl, signal: controller.signal });
+      responseText = await adapter.chat({
+        messages, model, maxTokens, apiKey, baseUrl, signal: controller.signal,
+        username: provider === 'jarvis' ? (process.env.JARVIS_USER || (baseUrl?.includes('sslip.io') ? 'jean' : '')) : undefined,
+      });
     } catch (err: unknown) {
       clearTimeout(timeoutHandle);
       const isTimeout = err instanceof Error && err.name === 'AbortError';
