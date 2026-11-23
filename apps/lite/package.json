@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server-dist release",
     "test:engine": "tsx src/lib/analyticalEngine.test.ts",
-    "test:controller": "tsx server/controllers/toolController.test.ts",
+    "test:controller": "tsx server/controllers/toolController.test.ts && tsx src/lib/providerAdapters.jarvis.test.ts",
     "test": "pnpm run test:engine && pnpm run test:controller && pnpm run test:api-auth && pnpm run test:agent",
     "lint": "tsc --noEmit",
     "server": "tsx server/index.ts",
