@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { JarvisAdapter, normalizeProviderName } from './providerAdapters.js';
+import { JarvisAdapter, normalizeJarvisBaseUrl, normalizeProviderName } from './providerAdapters.js';
 
 const originalFetch = globalThis.fetch;
 try {
@@ -28,6 +28,9 @@ try {
   assert.equal((request.init?.headers as Record<string, string>).Authorization, `Basic ${Buffer.from('jean:segredo').toString('base64')}`);
   assert.deepEqual(JSON.parse(String(request.init?.body)), { mensagem: 'oi' });
   assert.equal(normalizeProviderName('Jarvis local'), 'jarvis');
+  assert.equal(normalizeJarvisBaseUrl('http://127.0.0.1:3200/'), 'http://127.0.0.1:3200');
+  assert.throws(() => normalizeJarvisBaseUrl('http://jarvis.example'), /HTTPS/);
+  assert.throws(() => normalizeJarvisBaseUrl('https://jean:senha@jarvis.example'), /credenciais/);
   console.log('✓ adaptador JARVIS: NDJSON, URL e Basic Auth');
 } finally {
   globalThis.fetch = originalFetch;
