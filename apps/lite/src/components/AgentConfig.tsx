@@ -23,6 +23,7 @@ const TECH_OPTIONS = [
   'DeepSeek',
   'NVIDIA NIM',
   'Cloudflare Workers AI',
+  'JARVIS',
 ] as const;
 
 type ProviderMeta = {
@@ -37,6 +38,16 @@ type ProviderMeta = {
 };
 
 const PROVIDERS: ProviderMeta[] = [
+  {
+    id: 'jarvis',
+    label: 'JARVIS',
+    short: 'Orquestrador',
+    description: 'Assistente central do Jean. A senha e a URL são lidas somente pelo backend.',
+    accent: 'bg-cyan-50 dark:bg-cyan-950/40 border-cyan-300 dark:border-cyan-800 text-cyan-900 dark:text-cyan-200',
+    ring: 'ring-cyan-500/40',
+    dot: 'bg-cyan-400',
+    needsKey: false,
+  },
   {
     id: 'openai',
     label: 'OpenAI',
@@ -260,6 +271,9 @@ function techBadge(provider: string): { label: string; cls: string } {
   }
   if (p.includes('cloudflare') || p.includes('workers ai')) {
     return { label: 'Cloudflare Workers AI', cls: 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:border-amber-900' };
+  }
+  if (p.includes('jarvis')) {
+    return { label: 'JARVIS', cls: 'bg-cyan-100 text-cyan-800 border-cyan-200 dark:bg-cyan-950/50 dark:text-cyan-200 dark:border-cyan-900' };
   }
   if (p.includes('power') || p.includes('terminal')) {
     return { label: 'PowerShell CLI', cls: 'bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-950/50 dark:text-sky-200 dark:border-sky-900' };

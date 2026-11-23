@@ -16,7 +16,8 @@ export type ProviderName =
   | 'router9'
   | 'deepseek'
   | 'nvidia'
-  | 'cloudflare';
+  | 'cloudflare'
+  | 'jarvis';
 
 export interface ProviderConfig {
   model: string;

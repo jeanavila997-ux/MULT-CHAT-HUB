@@ -14,6 +14,7 @@ const AnalysisChart = lazy(() => import('./AnalysisChart'));
 // para provedor pago.
 const QUICK_PROVIDERS: { id: ProviderName; label: string }[] = [
   { id: 'ollama', label: 'Agente local (Ollama)' },
+  { id: 'jarvis', label: 'JARVIS' },
   { id: 'router9', label: '9Router' },
   { id: 'nvidia', label: 'NVIDIA (nuvem)' },
   { id: 'grok', label: 'Grok (nuvem)' },

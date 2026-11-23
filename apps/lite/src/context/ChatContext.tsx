@@ -73,6 +73,7 @@ const DEFAULT_PROVIDER_CONFIG: Record<ProviderName, ProviderConfig> = {
   deepseek:    { model: 'deepseek-chat', apiKey: '', baseUrl: 'https://api.deepseek.com/v1' },
   nvidia:      { model: 'nvidia/nemotron-nano-3-30b-a3b', apiKey: '', baseUrl: 'https://integrate.api.nvidia.com/v1' },
   cloudflare:  { model: '@cf/meta/llama-4-scout-17b-16e-instruct', apiKey: '' },
+  jarvis:      { model: 'jarvis-router', apiKey: '', baseUrl: 'http://127.0.0.1:3200' },
 };
 
 const DEFAULT_MESSAGES: Message[] = [
