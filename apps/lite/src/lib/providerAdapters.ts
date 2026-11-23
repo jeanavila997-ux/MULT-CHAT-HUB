@@ -21,7 +21,8 @@ export type ProviderName =
   | 'router9'
   | 'deepseek'
   | 'nvidia'
-  | 'cloudflare';
+  | 'cloudflare'
+  | 'jarvis';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -33,6 +34,7 @@ export interface AdapterChatParams {
   model: string;
   maxTokens: number;
   apiKey?: string;
+  username?: string;
   baseUrl?: string;
   signal?: AbortSignal;
 }
@@ -66,6 +68,8 @@ export const PROVIDER_ALIASES: Record<string, ProviderName> = {
   nim: 'nvidia',
   'nvidia nim': 'nvidia',
   cloudflare: 'cloudflare',
+  jarvis: 'jarvis',
+  'jarvis local': 'jarvis',
   'workers ai': 'cloudflare',
   'cloudflare workers ai': 'cloudflare',
   ollama: 'ollama',
@@ -91,6 +95,7 @@ export function normalizeProviderName(raw: unknown): ProviderName | null {
   if (compact.includes('deepseek')) return 'deepseek';
   if (compact.includes('nvidia')) return 'nvidia';
   if (compact.includes('cloudflare') || compact.includes('workers ai')) return 'cloudflare';
+  if (compact.includes('jarvis')) return 'jarvis';
   if (compact.includes('hermes')) return 'hermes';
   if (compact.includes('ollama')) return 'ollama';
   if (compact.includes('llama')) return 'llamacpp';
@@ -120,6 +125,7 @@ export const DEFAULT_MODELS: Record<ProviderName, string> = {
   deepseek:   'deepseek-chat',
   nvidia:     'nvidia/nemotron-nano-3-30b-a3b',
   cloudflare: '@cf/meta/llama-4-scout-17b-16e-instruct',
+  jarvis:     'jarvis-router',
 };
 
 export const PROVIDER_LABELS: Record<ProviderName, string> = {
@@ -141,6 +147,7 @@ export const PROVIDER_LABELS: Record<ProviderName, string> = {
   deepseek:    'DeepSeek',
   nvidia:      'NVIDIA NIM',
   cloudflare:  'Cloudflare Workers AI',
+  jarvis:      'JARVIS',
 };
 
 export const NEEDS_API_KEY: Record<ProviderName, boolean> = {
@@ -162,6 +169,7 @@ export const NEEDS_API_KEY: Record<ProviderName, boolean> = {
   deepseek:    true,
   nvidia:      true,
   cloudflare:  true,
+  jarvis:      false,
 };
 
 export const PROVIDER_ORDER: ProviderName[] = [
@@ -183,6 +191,7 @@ export const PROVIDER_ORDER: ProviderName[] = [
   'deepseek',
   'nvidia',
   'cloudflare',
+  'jarvis',
 ];
 
 // Anthropic and Gemini require messages to strictly alternate user/assistant
@@ -387,6 +396,46 @@ class LlamaCppAdapter implements ProviderAdapter {
   }
 }
 
+// ── JARVIS ───────────────────────────────────────────────────────────────────
+
+export class JarvisAdapter implements ProviderAdapter {
+  readonly name: ProviderName = 'jarvis';
+
+  async chat({ messages, apiKey = '', username = '', baseUrl = 'http://127.0.0.1:3200', signal }: AdapterChatParams): Promise<string> {
+    const mensagem = [...messages].reverse().find((m) => m.role === 'user')?.content?.trim();
+    if (!mensagem) throw new Error('JARVIS: mensagem do usuário ausente.');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/x-ndjson',
+      'X-Jarvis': '1',
+    };
+    if (username || apiKey) headers.Authorization = `Basic ${Buffer.from(`${username}:${apiKey}`, 'utf8').toString('base64')}`;
+    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ mensagem }),
+      signal,
+    });
+    const texto = await res.text();
+    if (!res.ok) {
+      let detalhe = texto.slice(0, 240);
+      try { detalhe = (JSON.parse(texto) as { erro?: string }).erro || detalhe; } catch { /* texto simples */ }
+      throw new Error(`JARVIS ${res.status}: ${detalhe || res.statusText}`);
+    }
+    let resposta = '';
+    let erro = '';
+    for (const linha of texto.split(/\r?\n/)) {
+      if (!linha.trim()) continue;
+      let evento: { tipo?: string; texto?: string; mensagem?: string };
+      try { evento = JSON.parse(linha); } catch { continue; }
+      if (evento.tipo === 'delta' && evento.texto) resposta += evento.texto;
+      if (evento.tipo === 'erro') erro = evento.mensagem || 'erro não informado';
+    }
+    if (!resposta && erro) throw new Error(`JARVIS: ${erro}`);
+    return resposta || 'O JARVIS não devolveu texto.';
+  }
+}
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 export function createAdapter(provider: ProviderName): ProviderAdapter {
@@ -397,6 +446,7 @@ export function createAdapter(provider: ProviderName): ProviderAdapter {
     case 'gemini':      return new GeminiAdapter();
     case 'openrouter':  return new OpenRouterAdapter();
     case 'llamacpp':    return new LlamaCppAdapter();
+    case 'jarvis':      return new JarvisAdapter();
     case 'claude_code': return new AnthropicAdapter();
     case 'cli':
     case 'powershell':
