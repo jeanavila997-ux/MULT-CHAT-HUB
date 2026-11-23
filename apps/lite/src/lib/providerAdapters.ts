@@ -404,13 +404,14 @@ export class JarvisAdapter implements ProviderAdapter {
   async chat({ messages, apiKey = '', username = '', baseUrl = 'http://127.0.0.1:3200', signal }: AdapterChatParams): Promise<string> {
     const mensagem = [...messages].reverse().find((m) => m.role === 'user')?.content?.trim();
     if (!mensagem) throw new Error('JARVIS: mensagem do usuário ausente.');
+    const endpoint = normalizeJarvisBaseUrl(baseUrl);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/x-ndjson',
       'X-Jarvis': '1',
     };
     if (username || apiKey) headers.Authorization = `Basic ${Buffer.from(`${username}:${apiKey}`, 'utf8').toString('base64')}`;
-    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
+    const res = await fetch(`${endpoint}/api/chat`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ mensagem }),
@@ -434,6 +435,17 @@ export class JarvisAdapter implements ProviderAdapter {
     if (!resposta && erro) throw new Error(`JARVIS: ${erro}`);
     return resposta || 'O JARVIS não devolveu texto.';
   }
+}
+
+export function normalizeJarvisBaseUrl(value: string): string {
+  let url: URL;
+  try { url = new URL(String(value || '').trim()); } catch { throw new Error('JARVIS: URL inválida.'); }
+  if (url.username || url.password) throw new Error('JARVIS: não coloque credenciais na URL.');
+  const loopback = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(url.hostname.toLowerCase());
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+    throw new Error('JARVIS: use HTTPS; HTTP é permitido somente em localhost.');
+  }
+  return (url.origin + url.pathname).replace(/\/+$/, '');
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
